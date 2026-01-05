@@ -378,20 +378,24 @@
     </div>
 
     <script>
+        const API_URL = "https://ВАШ_БЭКЕНД_ДОМЕН"; // например render.com
         let tg = window.Telegram?.WebApp;
         if (tg) {
             tg.ready();
             tg.expand();
         }
 
-        const products = [
-            { id: 1, name: "Michelin Latitude", price: 5200, image: "🛞", description: "Летняя шина для внедорожников", specs: ["Summer", "245/60R18"] },
-            { id: 2, name: "Continental WinterContact", price: 4800, image: "❄️", description: "Зимняя шина с сцеплением на льду", specs: ["Winter", "205/55R16"] },
-            { id: 3, name: "Pirelli Cinturato", price: 3900, image: "🎯", description: "Экономичная летняя шина", specs: ["Summer", "195/65R15"] },
-            { id: 4, name: "Goodyear Assurance", price: 4500, image: "⭐", description: "Премиальная зимняя шина", specs: ["Winter", "215/60R17"] },
-            { id: 5, name: "Dunlop SP Sport", price: 3600, image: "🏁", description: "Спортивная летняя шина", specs: ["Summer", "225/45R17"] },
-            { id: 6, name: "Bridgestone Blizzak", price: 5100, image: "🌨️", description: "Премиум зимняя шина", specs: ["Winter", "225/50R17"] }
-        ];
+        const products = [];
+
+async function loadProducts() {
+  const r = await fetch(`${API_URL}/api/products`);
+  const data = await r.json();
+  products.length = 0;
+  products.push(...data);
+  renderProducts(products);
+}
+
+loadProducts();
 
         let cart = [];
 
@@ -492,11 +496,22 @@
         });
 
         document.getElementById('checkoutBtn').addEventListener('click', () => {
-            alert('✓ Заказ оформлен! Сумма: ' + cart.reduce((sum, item) => sum + item.price * item.qty, 0) + ' ₽\n\nМенеджер свяжется с вами в течение часа.');
-            cart = [];
-            updateCart();
-            document.getElementById('navProducts').click();
-        });
+  const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const payload = {
+    type: "order",
+    items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
+    total,
+    ts: Date.now()
+  };
+
+  if (tg && tg.sendData) {
+    tg.sendData(JSON.stringify(payload));   // бот получит message.web_app_data.data
+    tg.close();                             // закрыть mini app
+  } else {
+    alert("Откройте Mini App из Telegram, чтобы отправить заказ.");
+  }
+});
+
 
         renderProducts();
     </script>
