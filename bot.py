@@ -174,7 +174,7 @@ async def cmd_del(message: Message):
 # Приходит как Message.web_app_data.data (строка)
 @dp.message(F.web_app_data)
 async def webapp_order(message: Message):
-    await message.answer(f"✅ Получил данные из Mini App:\n{message.web_app_data.data}")
+    await message.answer(f"Получил данные из Mini App:\n{message.web_app_data.data}")
     data = message.web_app_data.data  # строка [web:110]
     user = message.from_user
 
