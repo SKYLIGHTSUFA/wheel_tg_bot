@@ -3,6 +3,7 @@ import json
 import asyncio
 from typing import List, Optional
 
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 import aiosqlite
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
@@ -13,6 +14,14 @@ import uvicorn
 
 BOT_TOKEN = "7854473349:AAEImt52KG7VHaaKzBXwHhEAuB2t94Onukw"  # задайте переменную окружения
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
+
+@dp.message(Command("start"))
+async def start(message: Message):
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🛞 Открыть магазин", web_app=WebAppInfo(url=WEBAPP_URL))]],
+        resize_keyboard=True
+    )
+    await message.answer("Откройте магазин кнопкой ниже:", reply_markup=kb)
 
 # ВАЖНО: сюда добавим id админов (числа).
 ADMIN_IDS = set()  # например {123456789}
