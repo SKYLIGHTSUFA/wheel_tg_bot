@@ -1,8 +1,9 @@
+from aiogram import F
+from aiogram.types import ContentType
 import os
 import json
 import asyncio
 from typing import List, Optional
-
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 import aiosqlite
 from aiogram import Bot, Dispatcher, F
@@ -15,14 +16,7 @@ import uvicorn
 BOT_TOKEN = "7854473349:AAEImt52KG7VHaaKzBXwHhEAuB2t94Onukw"  # задайте переменную окружения
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
 
-@dp.message(Command("start"))
-async def start(message: Message):
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🛞 Открыть магазин", web_app=WebAppInfo(url=WEBAPP_URL))]],
-        resize_keyboard=True
-    )
-    await message.answer("Откройте магазин кнопкой ниже:", reply_markup=kb)
-
+    
 # ВАЖНО: сюда добавим id админов (числа).
 ADMIN_IDS = set()  # например {123456789}
 
@@ -41,7 +35,13 @@ app.add_middleware(
 )
 
 dp = Dispatcher()
-
+@dp.message(Command("start"))
+async def start(message: Message):
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🛞 Открыть магазин", web_app=WebAppInfo(url=WEBAPP_URL))]],
+        resize_keyboard=True
+    )
+    await message.answer("Откройте магазин кнопкой ниже:", reply_markup=kb)
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -181,10 +181,12 @@ async def cmd_del(message: Message):
 
 # Получение заказов из WebApp:
 # Приходит как Message.web_app_data.data (строка)
-@dp.message(F.web_app_data)
+@dp.message(F.content_type == ContentType.WEB_APP_DATA)
 async def webapp_order(message: Message):
-    await message.answer(f"Получил данные из Mini App:\n{message.web_app_data.data}")
-    data = message.web_app_data.data  # строка [web:110]
+    # Логируем в консоль, чтобы вы видели это в терминале, где запущен бот
+    print(f"DEBUG: Получены данные WebApp: {message.web_app_data.data}")
+    
+    data = message.web_app_data.data
     user = message.from_user
 
     async with aiosqlite.connect(DB_PATH) as db:
@@ -193,7 +195,7 @@ async def webapp_order(message: Message):
             (user.id if user else None, data),
         )
         await db.commit()
-
+    await message.answer(f"✅ Данные получены! Обрабатываю заказ...")
     # Отправим в группу заказов
     try:
         payload = json.loads(data)
@@ -220,7 +222,8 @@ async def webapp_order(message: Message):
 
 
 async def run_bot(bot: Bot):
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    await dp.start_polling(bot)
+    # await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 
 async def run_api():
