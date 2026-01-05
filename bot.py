@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]  # задайте переменную окружения
+BOT_TOKEN = "7854473349:AAEImt52KG7VHaaKzBXwHhEAuB2t94Onukw"  # задайте переменную окружения
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
 
 # ВАЖНО: сюда добавим id админов (числа).
