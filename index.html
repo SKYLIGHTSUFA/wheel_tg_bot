@@ -376,185 +376,98 @@
         <button class="nav-btn active" id="navProducts">Товары</button>
         <button class="nav-btn" id="navCart">Корзина</button>
     </div>
+<script>
+  const API_URL = "https://wheel-tg-bot.onrender.com";
+  const tg = window.Telegram?.WebApp;
+  tg?.ready?.();
+  tg?.expand?.();
 
-    <script>
-        const API_URL = "https://wheel-tg-bot.onrender.com"; // например render.com
-        let tg = window.Telegram?.WebApp;
-        if (tg) {
-            tg.ready();
-            tg.expand();
-        }
+  const products = [];
+  let cart = [];
 
-        const products = [];
+  async function loadProducts() {
+    const r = await fetch(`${API_URL}/api/products`);
+    if (!r.ok) {
+      const t = await r.text();
+      alert(`Не удалось загрузить товары. HTTP ${r.status}\n${t.slice(0,200)}`);
+      return;
+    }
+    const data = await r.json();
+    products.length = 0;
+    products.push(...data);
+    renderProducts(products);
+  }
 
-async function loadProducts() {
-  const r = await fetch(`${API_URL}/api/products`);
-  const data = await r.json();
-  products.length = 0;
-  products.push(...data);
-  renderProducts(products);
-}
+  function renderProducts(data = products) {
+    document.getElementById('productsGrid').innerHTML = data.map(p => `
+      <div class="product-card">
+        <div class="product-image">${p.image}</div>
+        <div class="product-info">
+          <div class="product-name">${p.name}</div>
+          <div class="product-price">${p.price} ₽</div>
+          <div style="font-size: 13px; color: var(--text-light); margin-bottom: 12px;">${p.description || ""}</div>
+          <div class="product-specs">${(p.specs || []).map(s => `<span class="spec-tag">${s}</span>`).join('')}</div>
+          <div class="product-actions">
+            <button class="btn btn-primary" onclick="addToCart(${p.id})">В корзину</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
 
-loadProducts();
+  // Важно: чтобы onclick="addToCart(...)" работал, функция должна быть глобальной
+  window.addToCart = function(id) {
+    const product = products.find(p => p.id === id);
+    if (!product) return;
+    const item = cart.find(p => p.id === id);
+    if (item) item.qty += 1;
+    else cart.push({ ...product, qty: 1 });
+    updateCart();
+  }
 
-        let cart = [];
+  function updateCart() {
+    const count = cart.reduce((sum, item) => sum + item.qty, 0);
+    document.getElementById('cartBadge').textContent = count;
+    // остальная логика корзины — как у вас
+  }
 
-        function renderProducts(data = products) {
-            document.getElementById('productsGrid').innerHTML = data.map(p => `
-                <div class="product-card">
-                    <div class="product-image">${p.image}</div>
-                    <div class="product-info">
-                        <div class="product-name">${p.name}</div>
-                        <div class="product-price">${p.price} ₽</div>
-                        <div style="font-size: 13px; color: var(--text-light); margin-bottom: 12px;">${p.description}</div>
-                        <div class="product-specs">${p.specs.map(s => `<span class="spec-tag">${s}</span>`).join('')}</div>
-                        <div class="product-actions">
-                            <button class="btn btn-primary" onclick="addToCart(${p.id})">В корзину</button>
-                            <button class="btn btn-secondary" onclick="bookProduct(${p.id})">Забронировать</button>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function addToCart(id) {
-            const product = products.find(p => p.id === id);
-            const item = cart.find(p => p.id === id);
-            if (item) item.qty += 1;
-            else cart.push({ ...product, qty: 1 });
-            updateCart();
-        }
-
-        function updateCart() {
-            const count = cart.reduce((sum, item) => sum + item.qty, 0);
-            document.getElementById('cartBadge').textContent = count;
-
-            const list = document.getElementById('cartItemsList');
-            if (cart.length === 0) {
-                document.getElementById('cartEmptyMsg').style.display = 'block';
-                document.getElementById('cartSummarySection').style.display = 'none';
-                list.innerHTML = '';
-            } else {
-                document.getElementById('cartEmptyMsg').style.display = 'none';
-                document.getElementById('cartSummarySection').style.display = 'block';
-                const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-                list.innerHTML = cart.map(item => `
-                    <div class="cart-item">
-                        <div>
-                            <div style="font-weight: 600;">${item.name}</div>
-                            <div style="color: var(--primary); font-weight: 700;">${item.price * item.qty} ₽</div>
-                        </div>
-                        <button style="padding: 6px 12px; background: var(--secondary); color: white; border: none; border-radius: 6px; cursor: pointer;" onclick="removeFromCart(${item.id})">✕</button>
-                    </div>
-                `).join('');
-                document.getElementById('summaryCount').textContent = count;
-                document.getElementById('summaryPrice').textContent = total + ' ₽';
-                document.getElementById('totalPrice').textContent = total + ' ₽';
-            }
-        }
-
-        function removeFromCart(id) {
-            cart = cart.filter(p => p.id !== id);
-            updateCart();
-        }
-
-        function bookProduct(id) {
-            const product = products.find(p => p.id === id);
-            document.getElementById('bookingProductName').value = product.name;
-            document.getElementById('bookingModal').classList.add('active');
-        }
-
-        document.getElementById('bookingForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            alert('Спасибо! Менеджер свяжется с вами вскоре.');
-            document.getElementById('bookingModal').classList.remove('active');
-            document.getElementById('bookingForm').reset();
-        });
-
-        document.getElementById('navProducts').addEventListener('click', () => {
-            document.getElementById('productsView').style.display = 'block';
-            document.getElementById('cartView').classList.remove('active');
-            document.getElementById('navProducts').classList.add('active');
-            document.getElementById('navCart').classList.remove('active');
-        });
-
-        document.getElementById('navCart').addEventListener('click', () => {
-            document.getElementById('productsView').style.display = 'none';
-            document.getElementById('cartView').classList.add('active');
-            document.getElementById('navProducts').classList.remove('active');
-            document.getElementById('navCart').classList.add('active');
-        });
-
-        document.getElementById('cartBtn').addEventListener('click', () => {
-            document.getElementById('navCart').click();
-        });
-
-        document.getElementById('searchInput').addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase();
-            const filtered = products.filter(p => p.name.toLowerCase().includes(query) || p.description.toLowerCase().includes(query));
-            renderProducts(filtered);
-        });
-
-        document.getElementById('checkoutBtn').addEventListener('click', async () => {
-    // 1. Собираем данные
+  document.getElementById('checkoutBtn').addEventListener('click', async () => {
     const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-
-    // Получаем данные о пользователе из Telegram WebApp
-    const user = tg.initDataUnsafe?.user || {};
+    const user = tg?.initDataUnsafe?.user || {};
 
     const payload = {
-        user_id: user.id,
-        username: user.username,
-        full_name: [user.first_name, user.last_name].filter(Boolean).join(" "),
-        items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
-        total: total,
-        comment: "Заказ из WebApp" // Можно добавить поле ввода комментария в HTML
+      user_id: user.id || null,
+      username: user.username || null,
+      full_name: [user.first_name, user.last_name].filter(Boolean).join(" "),
+      items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
+      total,
+      comment: "Заказ из WebApp"
     };
 
-    const btn = document.getElementById('checkoutBtn').addEventListener('click', async () => {
-  const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const user = tg?.initDataUnsafe?.user || {};
-
-  const payload = {
-    user_id: user.id || null,
-    username: user.username || null,
-    full_name: [user.first_name, user.last_name].filter(Boolean).join(" "),
-    items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
-    total,
-    comment: "Заказ из WebApp"
-  };
-
-  try {
     const resp = await fetch(`${API_URL}/api/order`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
-    const text = await resp.text(); // сначала читаем как текст
+    const text = await resp.text();
     let data = null;
     try { data = JSON.parse(text); } catch (_) {}
 
     if (!resp.ok) {
-      alert(`HTTP ${resp.status}\nОтвет сервера:\n${text.slice(0, 500)}`);
+      alert(`HTTP ${resp.status}\n${text.slice(0, 500)}`);
       return;
     }
-
     if (!data || data.status !== "ok") {
       alert(`Неожиданный ответ:\n${text.slice(0, 500)}`);
       return;
     }
 
     tg?.close?.();
-  } catch (e) {
-    alert("Ошибка сети: " + e.message);
-  }
-});
+  });
 
+  loadProducts();
+</script>
 
-
-
-        renderProducts();
-    </script>
 </body>
 </html>
