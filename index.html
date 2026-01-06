@@ -495,22 +495,60 @@ loadProducts();
             renderProducts(filtered);
         });
 
-        document.getElementById('checkoutBtn').addEventListener('click', () => {
-  const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const payload = {
-    type: "order",
-    items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
-    total,
-    ts: Date.now()
-  };
+        document.getElementById('checkoutBtn').addEventListener('click', async () => {
+    // 1. Собираем данные
+    const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
 
-  if (tg && tg.sendData) {
-    tg.sendData(JSON.stringify(payload));   // бот получит message.web_app_data.data
-    tg.close();                             // закрыть mini app
-  } else {
-    alert("Откройте Mini App из Telegram, чтобы отправить заказ.");
-  }
+    // Получаем данные о пользователе из Telegram WebApp
+    const user = tg.initDataUnsafe?.user || {};
+
+    const payload = {
+        user_id: user.id,
+        username: user.username,
+        full_name: [user.first_name, user.last_name].filter(Boolean).join(" "),
+        items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
+        total: total,
+        comment: "Заказ из WebApp" // Можно добавить поле ввода комментария в HTML
+    };
+
+    const btn = document.getElementById('checkoutBtn');
+    const originalText = btn.textContent;
+    btn.textContent = "Отправка...";
+    btn.disabled = true;
+
+    try {
+        // 2. Отправляем напрямую на сервер
+        const response = await fetch(`${API_URL}/api/order`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.status === "ok") {
+            // 3. Если успех - закрываем приложение
+            tg.showPopup({
+                title: 'Успешно!',
+                message: 'Ваш заказ принят и передан менеджеру.',
+                buttons: [{type: 'ok'}]
+            }, function() {
+                tg.close();
+            });
+        } else {
+            alert("Ошибка сервера: " + result.message);
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }
+    } catch (e) {
+        alert("Ошибка сети: " + e.message);
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
 });
+
 
 
         renderProducts();

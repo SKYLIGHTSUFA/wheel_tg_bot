@@ -1,48 +1,59 @@
-from aiogram import F
-from aiogram.types import ContentType
 import os
 import json
 import asyncio
 from typing import List, Optional
+
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 import aiosqlite
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import uvicorn
 
-BOT_TOKEN = "7854473349:AAEImt52KG7VHaaKzBXwHhEAuB2t94Onukw"  # задайте переменную окружения
+# --- КОНФИГУРАЦИЯ ---
+BOT_TOKEN = "7854473349:AAEImt52KG7VHaaKzBXwHhEAuB2t94Onukw"
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
+ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
+WEBAPP_URL = "https://ваш-сайт.onrender.com"  # ВАЖНО: Укажите здесь ваш актуальный URL
 
-    
-# ВАЖНО: сюда добавим id админов (числа).
-ADMIN_IDS = set()  # например {123456789}
-
-# Куда слать заказы (ваша группа):
-ORDERS_CHAT = "@KolesaUfa02"
-
+# Создаем бота глобально, чтобы к нему был доступ из API
+bot = Bot(BOT_TOKEN)
+dp = Dispatcher()
 app = FastAPI(title="KolesaUfa API")
 
-# CORS, чтобы GitHub Pages мог дергать API
+# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # потом можно ужесточить
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-dp = Dispatcher()
-@dp.message(Command("start"))
-async def start(message: Message):
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🛞 Открыть магазин", web_app=WebAppInfo(url=WEBAPP_URL))]],
-        resize_keyboard=True
-    )
-    await message.answer("Откройте магазин кнопкой ниже:", reply_markup=kb)
+ADMIN_IDS = set()
 
+
+# --- MODEL (Схема данных заказа) ---
+class OrderItem(BaseModel):
+    id: int
+    name: str
+    price: int
+    qty: int
+
+
+class OrderRequest(BaseModel):
+    user_id: Optional[int] = None
+    username: Optional[str] = None
+    full_name: Optional[str] = None
+    items: List[OrderItem]
+    total: int
+    comment: Optional[str] = ""
+
+
+# --- DATABASE ---
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
@@ -72,13 +83,13 @@ def is_admin(user_id: Optional[int]) -> bool:
     return user_id is not None and user_id in ADMIN_IDS
 
 
+# --- API ENDPOINTS ---
+
 @app.get("/api/products")
 async def api_products():
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            "SELECT id, name, price, image, description, specs FROM products WHERE active=1 ORDER BY id DESC"
-        )
+        cur = await db.execute("SELECT * FROM products WHERE active=1 ORDER BY id DESC")
         rows = await cur.fetchall()
 
     out = []
@@ -94,137 +105,87 @@ async def api_products():
     return out
 
 
-@dp.message(Command("whoami"))
-async def cmd_whoami(message: Message):
-    await message.answer(f"Ваш user_id: {message.from_user.id}")
+# НОВЫЙ МЕТОД: Принимает заказ напрямую через HTTP
+@app.post("/api/order")
+async def create_order(order: OrderRequest):
+    # 1. Сохраняем в БД
+    payload_json = order.model_dump_json()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO orders(user_id, payload) VALUES(?,?)",
+            (order.user_id, payload_json),
+        )
+        await db.commit()
+
+    # 2. Формируем текст сообщения
+    lines = ["🧾 <b>Новый заказ (через API)</b>"]
+    if order.full_name:
+        user_link = f"<a href='tg://user?id={order.user_id}'>{order.full_name}</a>"
+        lines.append(f"👤 Клиент: {user_link} (ID: {order.user_id})")
+    if order.username:
+        lines.append(f"🔗 @{order.username}")
+
+    if order.comment:
+        lines.append(f"💬 Комментарий: <i>{order.comment}</i>")
+
+    lines.append("\n🛒 <b>Товары:</b>")
+    for item in order.items:
+        lines.append(f"• {item.name} (x{item.qty}) — {item.price * item.qty} ₽")
+
+    lines.append(f"\n💰 <b>Итого: {order.total} ₽</b>")
+
+    text = "\n".join(lines)
+
+    # 3. Отправляем в чат заказов
+    try:
+        await bot.send_message(ORDERS_CHAT, text, parse_mode="HTML")
+        return {"status": "ok", "message": "Заказ отправлен"}
+    except Exception as e:
+        print(f"Ошибка отправки в Telegram: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+# --- BOT HANDLERS ---
+
+@dp.message(Command("start"))
+async def start(message: Message):
+    # Убедитесь, что url ведет на HTTPS версию
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🛞 Открыть магазин", web_app=WebAppInfo(url=WEBAPP_URL))]],
+        resize_keyboard=True
+    )
+    await message.answer("Откройте магазин кнопкой ниже:", reply_markup=kb)
 
 
 @dp.message(Command("setadmin"))
 async def cmd_setadmin(message: Message):
-    # Временно: первый, кто выполнит /setadmin, становится админом.
-    # Потом можно убрать.
     ADMIN_IDS.add(message.from_user.id)
     await message.answer(f"Готово. Добавлен админ: {message.from_user.id}")
 
 
 @dp.message(Command("add"))
 async def cmd_add(message: Message):
-    if not is_admin(message.from_user.id):
-        return await message.answer("Нет доступа.")
-
-    # Формат:
-    # /add Название | 5200 | 🛞 | Описание | spec1,spec2,spec3
+    if not is_admin(message.from_user.id): return
     text = message.text or ""
     payload = text.removeprefix("/add").strip()
     parts = [p.strip() for p in payload.split("|")]
     if len(parts) < 2:
-        return await message.answer(
-            "Формат:\n/add Название | Цена | (эмодзи) | (описание) | (spec1,spec2,...)"
-        )
+        return await message.answer("Формат: /add Название | Цена | Эмодзи")
 
     name = parts[0]
     price = int(parts[1])
     image = parts[2] if len(parts) >= 3 and parts[2] else "🛞"
-    description = parts[3] if len(parts) >= 4 else ""
-    specs = []
-    if len(parts) >= 5 and parts[4]:
-        specs = [s.strip() for s in parts[4].split(",") if s.strip()]
 
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT INTO products(name, price, image, description, specs) VALUES(?,?,?,?,?)",
-            (name, price, image, description, json.dumps(specs, ensure_ascii=False)),
+            (name, price, image, "", "[]"),
         )
         await db.commit()
-
-    await message.answer(f"✅ Товар добавлен: {name} — {price} ₽")
-
-
-@dp.message(Command("list"))
-async def cmd_list(message: Message):
-    if not is_admin(message.from_user.id):
-        return await message.answer("Нет доступа.")
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            "SELECT id, name, price, active FROM products ORDER BY id DESC LIMIT 50"
-        )
-        rows = await cur.fetchall()
-
-    if not rows:
-        return await message.answer("Товаров нет. Добавьте через /add")
-
-    lines = ["Список товаров:"]
-    for r in rows:
-        st = "✅" if r["active"] == 1 else "⛔"
-        lines.append(f"{st} #{r['id']} — {r['name']} — {r['price']} ₽")
-    await message.answer("\n".join(lines))
+    await message.answer(f"✅ Товар добавлен: {name}")
 
 
-@dp.message(Command("del"))
-async def cmd_del(message: Message):
-    if not is_admin(message.from_user.id):
-        return await message.answer("Нет доступа.")
-
-    parts = (message.text or "").split()
-    if len(parts) != 2:
-        return await message.answer("Формат: /del ID")
-
-    pid = int(parts[1])
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE products SET active=0 WHERE id=?", (pid,))
-        await db.commit()
-
-    await message.answer(f"🗑️ Скрыт товар #{pid}")
-
-
-# Получение заказов из WebApp:
-# Приходит как Message.web_app_data.data (строка)
-@dp.message(F.content_type == ContentType.WEB_APP_DATA)
-async def webapp_order(message: Message):
-    # Логируем в консоль, чтобы вы видели это в терминале, где запущен бот
-    print(f"DEBUG: Получены данные WebApp: {message.web_app_data.data}")
-    
-    data = message.web_app_data.data
-    user = message.from_user
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO orders(user_id, payload) VALUES(?,?)",
-            (user.id if user else None, data),
-        )
-        await db.commit()
-    await message.answer(f"✅ Данные получены! Обрабатываю заказ...")
-    # Отправим в группу заказов
-    try:
-        payload = json.loads(data)
-    except Exception:
-        payload = {"raw": data}
-
-    # Красивый текст
-    lines = ["🧾 Новый заказ из Mini App"]
-    if user:
-        lines.append(f"Пользователь: {user.full_name} (id={user.id})")
-        if user.username:
-            lines.append(f"Username: @{user.username}")
-
-    if payload.get("type") == "order":
-        lines.append("Товары:")
-        for it in payload.get("items", []):
-            lines.append(f"• {it.get('name')} — {it.get('qty')} шт × {it.get('price')} ₽")
-        lines.append(f"Итого: {payload.get('total')} ₽")
-    else:
-        lines.append(f"Данные: {data}")
-
-    await message.bot.send_message(ORDERS_CHAT, "\n".join(lines))  # можно @username группы [web:106]
-    await message.answer("✅ Заказ отправлен менеджеру.")
-
-
-async def run_bot(bot: Bot):
-    await dp.start_polling(bot)
-    # await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-
+# --- RUNNERS ---
 
 async def run_api():
     config = uvicorn.Config(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), log_level="info")
@@ -234,8 +195,8 @@ async def run_api():
 
 async def main():
     await init_db()
-    bot = Bot(BOT_TOKEN)
-    await asyncio.gather(run_api(), run_bot(bot))
+    # Запускаем и API и Бота параллельно
+    await asyncio.gather(run_api(), dp.start_polling(bot))
 
 
 if __name__ == "__main__":
