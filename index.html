@@ -511,43 +511,46 @@ loadProducts();
         comment: "Заказ из WebApp" // Можно добавить поле ввода комментария в HTML
     };
 
-    const btn = document.getElementById('checkoutBtn');
-    const originalText = btn.textContent;
-    btn.textContent = "Отправка...";
-    btn.disabled = true;
+    const btn = document.getElementById('checkoutBtn').addEventListener('click', async () => {
+  const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const user = tg?.initDataUnsafe?.user || {};
 
-    try {
-        // 2. Отправляем напрямую на сервер
-        const response = await fetch(`${API_URL}/api/order`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
+  const payload = {
+    user_id: user.id || null,
+    username: user.username || null,
+    full_name: [user.first_name, user.last_name].filter(Boolean).join(" "),
+    items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
+    total,
+    comment: "Заказ из WebApp"
+  };
 
-        const result = await response.json();
+  try {
+    const resp = await fetch(`${API_URL}/api/order`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-        if (result.status === "ok") {
-            // 3. Если успех - закрываем приложение
-            tg.showPopup({
-                title: 'Успешно!',
-                message: 'Ваш заказ принят и передан менеджеру.',
-                buttons: [{type: 'ok'}]
-            }, function() {
-                tg.close();
-            });
-        } else {
-            alert("Ошибка сервера: " + result.message);
-            btn.textContent = originalText;
-            btn.disabled = false;
-        }
-    } catch (e) {
-        alert("Ошибка сети: " + e.message);
-        btn.textContent = originalText;
-        btn.disabled = false;
+    const text = await resp.text(); // сначала читаем как текст
+    let data = null;
+    try { data = JSON.parse(text); } catch (_) {}
+
+    if (!resp.ok) {
+      alert(`HTTP ${resp.status}\nОтвет сервера:\n${text.slice(0, 500)}`);
+      return;
     }
+
+    if (!data || data.status !== "ok") {
+      alert(`Неожиданный ответ:\n${text.slice(0, 500)}`);
+      return;
+    }
+
+    tg?.close?.();
+  } catch (e) {
+    alert("Ошибка сети: " + e.message);
+  }
 });
+
 
 
 
