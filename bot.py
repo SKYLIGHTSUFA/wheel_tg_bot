@@ -7,7 +7,10 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 import aiosqlite
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.filters.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +25,8 @@ WEBAPP_URL = "https://skylightsufa.github.io/wheel_tg_bot/"  # URL WebApp на G
 
 # Создаем бота глобально, чтобы к нему был доступ из API
 bot = Bot(BOT_TOKEN)
-dp = Dispatcher()
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 app = FastAPI(title="KolesaUfa API")
 
 # --- CORS ---
@@ -35,6 +39,15 @@ app.add_middleware(
 )
 
 ADMIN_IDS = set()
+
+# --- FSM STATES ---
+class AddProduct(StatesGroup):
+    waiting_name = State()
+    waiting_price = State()
+    waiting_image = State()
+    waiting_description = State()
+    waiting_specs = State()
+    confirming = State()
 
 
 # --- MODEL (Схема данных заказа) ---
@@ -186,26 +199,210 @@ async def cmd_setadmin(message: Message):
     await message.answer(f"Готово. Добавлен админ: {message.from_user.id}")
 
 
+@dp.message(Command("cancel"))
+async def cmd_cancel(message: Message, state: FSMContext):
+    """Отменяет текущую операцию"""
+    current_state = await state.get_state()
+    if current_state is None:
+        return await message.answer("❌ Нет активных операций для отмены")
+    
+    await state.clear()
+    await message.answer("✅ Операция отменена")
+
+
+def get_image_keyboard() -> InlineKeyboardMarkup:
+    """Создает клавиатуру с популярными эмодзи для товаров"""
+    emojis = ["🛞", "🚗", "🚙", "🏎️", "🛻", "🚛", "🚚", "🏍️", "🛵", "🚲", "⚙️", "🔧", "💎", "⭐", "🔥"]
+    buttons = []
+    row = []
+    for i, emoji in enumerate(emojis):
+        row.append(InlineKeyboardButton(text=emoji, callback_data=f"img_{emoji}"))
+        if (i + 1) % 3 == 0:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton(text="❌ Пропустить", callback_data="img_skip")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 @dp.message(Command("add"))
-async def cmd_add(message: Message):
-    if not is_admin(message.from_user.id): return
-    text = message.text or ""
-    payload = text.removeprefix("/add").strip()
-    parts = [p.strip() for p in payload.split("|")]
-    if len(parts) < 2:
-        return await message.answer("Формат: /add Название | Цена | Эмодзи")
+async def cmd_add(message: Message, state: FSMContext):
+    """Начинает процесс добавления товара"""
+    if not is_admin(message.from_user.id):
+        return await message.answer("❌ У вас нет прав администратора")
+    
+    await state.set_state(AddProduct.waiting_name)
+    await message.answer(
+        "➕ <b>Добавление нового товара</b>\n\n"
+        "📝 <b>Шаг 1/5:</b> Введите название товара:",
+        parse_mode="HTML"
+    )
 
-    name = parts[0]
-    price = int(parts[1])
-    image = parts[2] if len(parts) >= 3 and parts[2] else "🛞"
 
+@dp.message(AddProduct.waiting_name)
+async def process_name(message: Message, state: FSMContext):
+    """Обрабатывает название товара"""
+    # Проверяем, не отмена ли это
+    if message.text and message.text.strip().lower() == "/cancel":
+        await state.clear()
+        return await message.answer("✅ Операция отменена")
+    
+    name = message.text.strip()
+    if not name:
+        return await message.answer("❌ Название не может быть пустым. Попробуйте снова или /cancel для отмены:")
+    
+    await state.update_data(name=name)
+    await state.set_state(AddProduct.waiting_price)
+    await message.answer(
+        f"✅ Название: <b>{name}</b>\n\n"
+        "💰 <b>Шаг 2/5:</b> Введите цену товара (только число, без символов):\n"
+        "💡 Или отправьте /cancel для отмены",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(AddProduct.waiting_price)
+async def process_price(message: Message, state: FSMContext):
+    """Обрабатывает цену товара"""
+    # Проверяем, не отмена ли это
+    if message.text and message.text.strip().lower() == "/cancel":
+        await state.clear()
+        return await message.answer("✅ Операция отменена")
+    
+    try:
+        price = int(message.text.strip())
+        if price <= 0:
+            return await message.answer("❌ Цена должна быть положительным числом. Попробуйте снова или /cancel для отмены:")
+    except ValueError:
+        return await message.answer("❌ Неверный формат цены. Введите только число или /cancel для отмены:")
+    
+    await state.update_data(price=price)
+    await state.set_state(AddProduct.waiting_image)
+    await message.answer(
+        f"✅ Цена: <b>{price} ₽</b>\n\n"
+        "🖼️ <b>Шаг 3/5:</b> Выберите эмодзи для товара:",
+        reply_markup=get_image_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@dp.callback_query(F.data.startswith("img_"), AddProduct.waiting_image)
+async def process_image(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает выбор эмодзи"""
+    image = callback.data.replace("img_", "")
+    
+    if image == "skip":
+        image = "🛞"  # Значение по умолчанию
+    
+    await state.update_data(image=image)
+    await state.set_state(AddProduct.waiting_description)
+    await callback.message.edit_text(
+        f"✅ Эмодзи: <b>{image}</b>\n\n"
+        "📄 <b>Шаг 4/5:</b> Введите описание товара (или отправьте \"-\" чтобы пропустить):",
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@dp.message(AddProduct.waiting_description)
+async def process_description(message: Message, state: FSMContext):
+    """Обрабатывает описание товара"""
+    # Проверяем, не отмена ли это
+    if message.text and message.text.strip().lower() == "/cancel":
+        await state.clear()
+        return await message.answer("✅ Операция отменена")
+    
+    description = message.text.strip()
+    if description == "-":
+        description = ""
+    
+    await state.update_data(description=description)
+    await state.set_state(AddProduct.waiting_specs)
+    await message.answer(
+        f"✅ Описание: <b>{description or 'не указано'}</b>\n\n"
+        "🏷️ <b>Шаг 5/5:</b> Введите характеристики товара через запятую\n"
+        "(например: Летняя, 245/60R18, All-Terrain, Speed H)\n"
+        "Или отправьте \"-\" чтобы пропустить, или /cancel для отмены:",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(AddProduct.waiting_specs)
+async def process_specs(message: Message, state: FSMContext):
+    """Обрабатывает характеристики и показывает превью для подтверждения"""
+    # Проверяем, не отмена ли это
+    if message.text and message.text.strip().lower() == "/cancel":
+        await state.clear()
+        return await message.answer("✅ Операция отменена")
+    
+    specs_text = message.text.strip()
+    
+    if specs_text == "-":
+        specs = []
+    else:
+        specs = [s.strip() for s in specs_text.split(",") if s.strip()]
+    
+    await state.update_data(specs=specs)
+    await state.set_state(AddProduct.confirming)
+    
+    data = await state.get_data()
+    
+    preview = (
+        "📋 <b>Превью товара:</b>\n\n"
+        f"📝 <b>Название:</b> {data['name']}\n"
+        f"💰 <b>Цена:</b> {data['price']} ₽\n"
+        f"🖼️ <b>Эмодзи:</b> {data['image']}\n"
+        f"📄 <b>Описание:</b> {data.get('description', 'не указано') or 'не указано'}\n"
+        f"🏷️ <b>Характеристики:</b> {', '.join(specs) if specs else 'не указано'}\n\n"
+        "✅ Сохранить товар?"
+    )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Да, сохранить", callback_data="confirm_yes"),
+            InlineKeyboardButton(text="❌ Отменить", callback_data="confirm_no")
+        ]
+    ])
+    
+    await message.answer(preview, reply_markup=keyboard, parse_mode="HTML")
+
+
+@dp.callback_query(F.data == "confirm_yes", AddProduct.confirming)
+async def confirm_add(callback: CallbackQuery, state: FSMContext):
+    """Сохраняет товар в базу данных"""
+    data = await state.get_data()
+    
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT INTO products(name, price, image, description, specs) VALUES(?,?,?,?,?)",
-            (name, price, image, "", "[]"),
+            (
+                data['name'],
+                data['price'],
+                data['image'],
+                data.get('description', ''),
+                json.dumps(data.get('specs', []), ensure_ascii=False)
+            ),
         )
         await db.commit()
-    await message.answer(f"✅ Товар добавлен: {name}")
+    
+    await callback.message.edit_text(
+        f"✅ <b>Товар успешно добавлен!</b>\n\n"
+        f"📝 {data['name']}\n"
+        f"💰 {data['price']} ₽\n"
+        f"🖼️ {data['image']}",
+        parse_mode="HTML"
+    )
+    await callback.answer("Товар добавлен!")
+    await state.clear()
+
+
+@dp.callback_query(F.data == "confirm_no", AddProduct.confirming)
+async def cancel_add(callback: CallbackQuery, state: FSMContext):
+    """Отменяет добавление товара"""
+    await callback.message.edit_text("❌ Добавление товара отменено")
+    await callback.answer()
+    await state.clear()
 
 
 # --- RUNNERS ---
