@@ -1,6 +1,8 @@
 import os
 import json
 import asyncio
+import signal
+import sys
 from typing import List, Optional
 import logging
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
@@ -16,6 +18,13 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = "7854473349:AAEImt52KG7VHaaKzBXwHhEAuB2t94Onukw"
@@ -413,11 +422,83 @@ async def run_api():
     await server.serve()
 
 
+async def run_bot():
+    """Запускает бота с правильной обработкой webhook и ошибок"""
+    try:
+        # Отменяем webhook, если он был установлен (важно для предотвращения конфликтов)
+        logger.info("Проверяем и отменяем webhook (если был установлен)...")
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Webhook успешно отменен")
+            # Небольшая задержка для завершения всех запросов
+            await asyncio.sleep(1)
+        except Exception as webhook_error:
+            logger.warning(f"Ошибка при отмене webhook (возможно, его не было): {webhook_error}")
+        
+        logger.info("Запускаем polling...")
+        
+        # Запускаем polling с правильными параметрами
+        await dp.start_polling(
+            bot,
+            allowed_updates=dp.resolve_used_update_types(),
+            drop_pending_updates=True  # Игнорируем старые обновления при запуске
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при запуске бота: {e}", exc_info=True)
+        raise
+
+
+async def shutdown_bot():
+    """Корректно завершает работу бота"""
+    logger.info("Завершение работы бота...")
+    await bot.session.close()
+    logger.info("Бот остановлен")
+
+
 async def main():
-    await init_db()
-    # Запускаем и API и Бота параллельно
-    await asyncio.gather(run_api(), dp.start_polling(bot))
+    """Главная функция запуска приложения"""
+    try:
+        logger.info("Инициализация базы данных...")
+        await init_db()
+        logger.info("База данных инициализирована")
+        
+        logger.info("Запуск API сервера и бота...")
+        
+        # Создаем задачи для параллельного запуска
+        api_task = asyncio.create_task(run_api())
+        bot_task = asyncio.create_task(run_bot())
+        
+        # Запускаем обе задачи параллельно
+        # Если одна из них упадет, другая продолжит работать
+        results = await asyncio.gather(
+            api_task,
+            bot_task,
+            return_exceptions=True
+        )
+        
+        # Проверяем результаты
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                task_name = "API" if i == 0 else "Bot"
+                logger.error(f"Задача {task_name} завершилась с ошибкой: {result}", exc_info=True)
+            else:
+                task_name = "API" if i == 0 else "Bot"
+                logger.info(f"Задача {task_name} завершена")
+                
+    except KeyboardInterrupt:
+        logger.info("Получен KeyboardInterrupt. Завершение работы...")
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}", exc_info=True)
+    finally:
+        logger.info("Очистка ресурсов...")
+        await shutdown_bot()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Приложение остановлено пользователем")
+    except Exception as e:
+        logger.error(f"Ошибка запуска: {e}", exc_info=True)
+        sys.exit(1)
