@@ -18,7 +18,7 @@ import uvicorn
 BOT_TOKEN = "7854473349:AAEImt52KG7VHaaKzBXwHhEAuB2t94Onukw"
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
 ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
-WEBAPP_URL = "https://wheel-tg-bot.onrender.com"  # ВАЖНО: Укажите здесь ваш актуальный 
+WEBAPP_URL = "https://skylightsufa.github.io/wheel_tg_bot/"  # URL WebApp на GitHub Pages 
 
 # Создаем бота глобально, чтобы к нему был доступ из API
 bot = Bot(BOT_TOKEN)
