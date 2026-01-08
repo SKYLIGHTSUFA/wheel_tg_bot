@@ -9,6 +9,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message
 from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -84,6 +85,28 @@ def is_admin(user_id: Optional[int]) -> bool:
 
 
 # --- API ENDPOINTS ---
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    """Возвращает index.html для Telegram WebApp"""
+    html_path = os.path.join(os.path.dirname(__file__), "index.html")
+    try:
+        with open(html_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>WebApp not found</h1>", status_code=404)
+
+
+@app.get("/index.html", response_class=HTMLResponse)
+async def index_html():
+    """Альтернативный путь к index.html"""
+    html_path = os.path.join(os.path.dirname(__file__), "index.html")
+    try:
+        with open(html_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>WebApp not found</h1>", status_code=404)
+
 
 @app.get("/api/products")
 async def api_products():
