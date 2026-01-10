@@ -407,6 +407,29 @@
             color: var(--text-light);
             margin: 8px 0;
         }
+
+        .payment-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            background: var(--primary);
+            color: white;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.2s;
+            width: 100%;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+
+        .payment-link:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
     </style>
 </head>
 <body>
@@ -502,18 +525,22 @@
                     <div class="sbp-info">СБП (Система быстрых платежей)</div>
                     <div class="sbp-phone" id="sbpPhone">+7 (999) 123-45-67</div>
                     <div class="sbp-amount">Сумма: <span id="sbpAmount">0</span> ₽</div>
-                    <div style="margin-top: 16px; padding: 12px; background: var(--surface); border-radius: 8px; font-size: 13px; color: var(--text-light);">
+                    <div style="margin-top: 16px; padding: 12px; background: var(--surface); border-radius: 8px; font-size: 13px; color: var(--text-light); margin-bottom: 16px;">
                         Откройте приложение вашего банка, выберите "Перевод по номеру телефона" и введите указанный номер. Сумма будет списана автоматически.
                     </div>
+                    <a href="#" id="sbpLinkBtn" target="_blank" rel="noopener noreferrer" class="payment-link">
+                        <span>🔗</span>
+                        <span>Оплатить через СБП</span>
+                    </a>
                 </div>
                 <div class="payment-info" id="qrInfo" style="display: none;">
                     <div style="font-size: 48px; margin-bottom: 12px;">📲</div>
                     <div style="font-weight: 600; margin-bottom: 16px;">Оплата по QR-коду</div>
-                    <div class="qr-code-container" id="qrCodeContainer">
-                        <!-- QR-код будет сгенерирован здесь -->
+                    <div class="qr-code-container" id="qrCodeContainer" style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+                        <!-- QR-код будет загружен здесь -->
                     </div>
                     <div style="margin-top: 16px; padding: 12px; background: var(--surface); border-radius: 8px; font-size: 13px; color: var(--text-light);">
-                        Отсканируйте QR-код в приложении вашего банка для оплаты
+                        Отсканируйте QR-код в приложении вашего банка для оплаты или перейдите по ссылке ниже
                     </div>
                 </div>
             </div>
@@ -679,6 +706,8 @@
     // --- 7. ОФОРМЛЕНИЕ ЗАКАЗА (с выбором способа оплаты) ---
     let selectedPaymentMethod = null;
     let SBP_PHONE = "+79991234567"; // По умолчанию, будет обновлен с сервера
+    let SBP_LINK = "https://www.sberbank.com/sms/pbpn?requisiteNumber=79225604849"; // Ссылка для оплаты через СБП
+    let QR_CODE_PATH = "/api/qr-code-image"; // Путь к изображению QR-кода
 
     // Форматирование номера телефона для отображения
     function formatPhoneNumber(phone) {
@@ -704,6 +733,8 @@
             if (resp.ok) {
                 const config = await resp.json();
                 SBP_PHONE = config.sbp_phone || SBP_PHONE;
+                SBP_LINK = config.sbp_link || SBP_LINK;
+                QR_CODE_PATH = config.qr_code_path || QR_CODE_PATH;
             }
         } catch (e) {
             console.warn('Не удалось загрузить конфигурацию оплаты:', e);
@@ -758,6 +789,12 @@
                 const formattedPhone = formatPhoneNumber(SBP_PHONE);
                 document.getElementById('sbpPhone').textContent = formattedPhone;
                 document.getElementById('sbpAmount').textContent = total;
+                
+                // Обновляем ссылку для оплаты
+                const sbpLinkBtn = document.getElementById('sbpLinkBtn');
+                if (sbpLinkBtn && SBP_LINK) {
+                    sbpLinkBtn.href = SBP_LINK;
+                }
             }
             
             // Генерируем QR-код
@@ -770,7 +807,7 @@
         });
     });
 
-    // Генерация QR-кода для оплаты через API (более надежный способ)
+    // Загрузка QR-кода из локальной папки data
     function generateQRCode(amount) {
         const container = document.querySelector('#qrInfo .qr-code-container');
         
@@ -779,68 +816,66 @@
             return;
         }
         
-        // Формируем строку для QR-кода (формат для СБП)
-        const phoneNumber = SBP_PHONE.replace(/\D/g, ''); // Убираем все нецифровые символы
-        
-        // Формат СБП: телефон|сумма в копейках
-        // Также можно использовать более детальный формат ST00012 для СБП
-        const qrData = `${phoneNumber}|${amount * 100}`;
-        
-        // Используем API для генерации QR-кода (более надежно, чем локальная библиотека)
-        const apiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=10&data=${encodeURIComponent(qrData)}`;
-        
         // Показываем загрузку
         container.innerHTML = `
             <div style="padding: 20px; text-align: center; color: var(--text-light);">
-                <div style="margin-bottom: 10px;">⏳ Генерация QR-кода...</div>
+                <div style="margin-bottom: 10px;">⏳ Загрузка QR-кода...</div>
             </div>
         `;
         
-        // Создаем изображение QR-кода
+        // Создаем контейнер для QR-кода и ссылки
+        const qrWrapper = document.createElement('div');
+        qrWrapper.style.cssText = 'display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%;';
+        
+        // Создаем изображение QR-кода из локальной папки data
         const img = document.createElement('img');
         img.id = 'qrCodeImg';
         img.alt = 'QR код для оплаты';
-        img.style.cssText = 'border: 4px solid white; border-radius: 12px; padding: 12px; background: white; max-width: 100%; display: block; margin: 0 auto;';
-        img.src = apiUrl;
+        img.style.cssText = 'border: 4px solid white; border-radius: 12px; padding: 12px; background: white; max-width: 250px; width: 100%; height: auto; display: block;';
+        img.src = `${API_URL}${QR_CODE_PATH}`;
         
-        // Обработка успешной загрузки
+        // Создаем ссылку для оплаты через СБП
+        const linkContainer = document.createElement('div');
+        linkContainer.style.cssText = 'width: 100%; text-align: center;';
+        
+        const link = document.createElement('a');
+        link.href = SBP_LINK;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.className = 'payment-link';
+        link.innerHTML = `
+            <span>📱</span>
+            <span>Оплатить через СБП</span>
+        `;
+        
+        // Обработка успешной загрузки изображения
         img.onload = function() {
+            linkContainer.appendChild(link);
+            qrWrapper.appendChild(img);
+            qrWrapper.appendChild(linkContainer);
             container.innerHTML = '';
-            container.appendChild(img);
+            container.appendChild(qrWrapper);
         };
         
-        // Обработка ошибки загрузки
+        // Обработка ошибки загрузки изображения
         img.onerror = function() {
-            console.error('Ошибка загрузки QR-кода с API, пробуем альтернативный способ...');
-            // Пробуем альтернативный API
-            const altApiUrl = `https://chart.googleapis.com/chart?cht=qr&chs=250x250&chl=${encodeURIComponent(qrData)}`;
-            const altImg = document.createElement('img');
-            altImg.style.cssText = img.style.cssText;
-            altImg.src = altApiUrl;
-            altImg.onload = function() {
-                container.innerHTML = '';
-                container.appendChild(altImg);
-            };
-            altImg.onerror = function() {
-                container.innerHTML = `
-                    <div style="padding: 40px; text-align: center; color: var(--text-light);">
-                        <div style="margin-bottom: 12px;">⚠️ Не удалось загрузить QR-код</div>
-                        <div style="font-size: 13px; margin-bottom: 16px;">Пожалуйста, используйте другой способ оплаты или попробуйте позже</div>
-                        <div style="font-size: 12px; background: var(--background); padding: 12px; border-radius: 8px; margin-top: 12px;">
-                            <strong>Для оплаты через СБП:</strong><br>
-                            Номер: ${formatPhoneNumber(SBP_PHONE)}<br>
-                            Сумма: ${amount} ₽
-                        </div>
-                    </div>
-                `;
-            };
+            console.error('Ошибка загрузки QR-кода из локальной папки');
+            // Показываем ссылку даже если изображение не загрузилось
+            linkContainer.appendChild(link);
+            qrWrapper.innerHTML = `
+                <div style="padding: 20px; text-align: center; color: var(--text-light); background: var(--background); border-radius: 12px; width: 100%;">
+                    <div style="margin-bottom: 12px; font-size: 48px;">📱</div>
+                    <div style="margin-bottom: 16px; font-weight: 600;">QR-код временно недоступен</div>
+                    <div style="margin-bottom: 16px; font-size: 13px;">Используйте ссылку ниже для оплаты через СБП</div>
+                </div>
+            `;
+            qrWrapper.appendChild(linkContainer);
             container.innerHTML = '';
-            container.appendChild(altImg);
+            container.appendChild(qrWrapper);
         };
         
-        // Добавляем изображение в контейнер
-        container.innerHTML = '';
-        container.appendChild(img);
+        // Добавляем изображение в контейнер (начнет загружаться)
+        qrWrapper.appendChild(img);
     }
 
     // Функция для закрытия модального окна при клике вне его
