@@ -8,7 +8,7 @@ import logging
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 import aiosqlite
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.filters.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -296,7 +296,7 @@ async def process_price(message: Message, state: FSMContext):
     )
 
 
-@dp.callback_query(F.data.startswith("img_"), AddProduct.waiting_image)
+@dp.callback_query(F.data.startswith("img_"), StateFilter(AddProduct.waiting_image))
 async def process_image(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает выбор эмодзи"""
     image = callback.data.replace("img_", "")
@@ -377,40 +377,57 @@ async def process_specs(message: Message, state: FSMContext):
     await message.answer(preview, reply_markup=keyboard, parse_mode="HTML")
 
 
-@dp.callback_query(F.data == "confirm_yes", AddProduct.confirming)
+@dp.callback_query(F.data == "confirm_yes")
 async def confirm_add(callback: CallbackQuery, state: FSMContext):
     """Сохраняет товар в базу данных"""
-    data = await state.get_data()
-    
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO products(name, price, image, description, specs) VALUES(?,?,?,?,?)",
-            (
-                data['name'],
-                data['price'],
-                data['image'],
-                data.get('description', ''),
-                json.dumps(data.get('specs', []), ensure_ascii=False)
-            ),
+    try:
+        data = await state.get_data()
+        logger.info(f"Получены данные для сохранения: {data}")
+        
+        # Проверяем наличие необходимых данных
+        if not data or 'name' not in data or 'price' not in data:
+            logger.warning(f"Недостаточно данных для сохранения: {data}")
+            await callback.answer("❌ Ошибка: данные не найдены. Начните добавление товара заново.", show_alert=True)
+            await state.clear()
+            return
+        
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO products(name, price, image, description, specs) VALUES(?,?,?,?,?)",
+                (
+                    data['name'],
+                    data['price'],
+                    data['image'],
+                    data.get('description', ''),
+                    json.dumps(data.get('specs', []), ensure_ascii=False)
+                ),
+            )
+            await db.commit()
+            logger.info(f"Товар сохранен в БД: {data['name']}")
+        
+        await callback.answer("Товар добавлен!")
+        await callback.message.edit_text(
+            f"✅ <b>Товар успешно добавлен!</b>\n\n"
+            f"📝 {data['name']}\n"
+            f"💰 {data['price']} ₽\n"
+            f"🖼️ {data['image']}",
+            parse_mode="HTML"
         )
-        await db.commit()
-    
-    await callback.message.edit_text(
-        f"✅ <b>Товар успешно добавлен!</b>\n\n"
-        f"📝 {data['name']}\n"
-        f"💰 {data['price']} ₽\n"
-        f"🖼️ {data['image']}",
-        parse_mode="HTML"
-    )
-    await callback.answer("Товар добавлен!")
-    await state.clear()
+        await state.clear()
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении товара: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка при сохранении товара", show_alert=True)
+        try:
+            await callback.message.edit_text("❌ Произошла ошибка при сохранении товара. Попробуйте снова.")
+        except:
+            pass
 
 
-@dp.callback_query(F.data == "confirm_no", AddProduct.confirming)
+@dp.callback_query(F.data == "confirm_no")
 async def cancel_add(callback: CallbackQuery, state: FSMContext):
     """Отменяет добавление товара"""
+    await callback.answer("Операция отменена")
     await callback.message.edit_text("❌ Добавление товара отменено")
-    await callback.answer()
     await state.clear()
 
 
