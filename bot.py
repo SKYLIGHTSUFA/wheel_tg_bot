@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = "7854473349:AAEImt52KG7VHaaKzBXwHhEAuB2t94Onukw"
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
 ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
-WEBAPP_URL = "https://skylightsufa.github.io/wheel_tg_bot/"  # URL WebApp на GitHub Pages 
+WEBAPP_URL = "https://skylightsufa.github.io/wheel_tg_bot/"  # URL WebApp на GitHub Pages
+SBP_PHONE = os.environ.get("SBP_PHONE", "+79991234567")  # Номер телефона для СБП (без пробелов и дефисов) 
 
 # Создаем бота глобально, чтобы к нему был доступ из API
 bot = Bot(BOT_TOKEN)
@@ -74,6 +75,7 @@ class OrderRequest(BaseModel):
     items: List[OrderItem]
     total: int
     comment: Optional[str] = ""
+    payment_method: Optional[str] = "cash"  # cash, sbp, qr
 
 
 # --- DATABASE ---
@@ -96,10 +98,22 @@ async def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             payload TEXT NOT NULL,
+            payment_method TEXT DEFAULT 'cash',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
         await db.commit()
+        
+        # Добавляем колонку payment_method, если её нет (для существующих БД)
+        try:
+            cur = await db.execute("PRAGMA table_info(orders)")
+            columns = await cur.fetchall()
+            column_names = [col[1] for col in columns]
+            if 'payment_method' not in column_names:
+                await db.execute("ALTER TABLE orders ADD COLUMN payment_method TEXT DEFAULT 'cash'")
+                await db.commit()
+        except Exception as e:
+            logger.warning(f"Ошибка при миграции БД (возможно, колонка уже существует): {e}")
 
 
 def is_admin(user_id: Optional[int]) -> bool:
@@ -150,15 +164,29 @@ async def api_products():
     return out
 
 
+@app.get("/api/payment-config")
+async def get_payment_config():
+    """Возвращает конфигурацию для способов оплаты"""
+    return {
+        "sbp_phone": SBP_PHONE,
+        "methods": {
+            "cash": {"name": "Наличными", "available": True},
+            "sbp": {"name": "СБП (Система быстрых платежей)", "available": True},
+            "qr": {"name": "QR-код", "available": True}
+        }
+    }
+
+
 # НОВЫЙ МЕТОД: Принимает заказ напрямую через HTTP
 @app.post("/api/order")
 async def create_order(order: OrderRequest):
     # 1. Сохраняем в БД
     payload_json = order.model_dump_json()
+    payment_method = order.payment_method or "cash"
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO orders(user_id, payload) VALUES(?,?)",
-            (order.user_id, payload_json),
+            "INSERT INTO orders(user_id, payload, payment_method) VALUES(?,?,?)",
+            (order.user_id, payload_json, payment_method),
         )
         await db.commit()
 
@@ -178,6 +206,20 @@ async def create_order(order: OrderRequest):
         lines.append(f"• {item.name} (x{item.qty}) — {item.price * item.qty} ₽")
 
     lines.append(f"\n💰 <b>Итого: {order.total} ₽</b>")
+    
+    # Добавляем информацию о способе оплаты
+    payment_method = order.payment_method or "cash"
+    payment_emoji = {
+        "cash": "💵",
+        "sbp": "📱",
+        "qr": "📲"
+    }
+    payment_name = {
+        "cash": "Наличными",
+        "sbp": "СБП (Система быстрых платежей)",
+        "qr": "QR-код"
+    }
+    lines.append(f"\n💳 <b>Способ оплаты:</b> {payment_emoji.get(payment_method, '💵')} {payment_name.get(payment_method, 'Наличными')}")
 
     text = "\n".join(lines)
 
