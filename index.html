@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Магазин Шин - TireShop</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -379,11 +378,14 @@
             margin: 20px 0;
         }
 
-        #qrCode {
+        #qrCode, #qrCodeImg {
             border: 4px solid white;
             border-radius: 12px;
             padding: 12px;
             background: white;
+            max-width: 100%;
+            display: block;
+            margin: 0 auto;
         }
 
         .sbp-info {
@@ -507,8 +509,8 @@
                 <div class="payment-info" id="qrInfo" style="display: none;">
                     <div style="font-size: 48px; margin-bottom: 12px;">📲</div>
                     <div style="font-weight: 600; margin-bottom: 16px;">Оплата по QR-коду</div>
-                    <div class="qr-code-container">
-                        <canvas id="qrCode"></canvas>
+                    <div class="qr-code-container" id="qrCodeContainer">
+                        <!-- QR-код будет сгенерирован здесь -->
                     </div>
                     <div style="margin-top: 16px; padding: 12px; background: var(--surface); border-radius: 8px; font-size: 13px; color: var(--text-light);">
                         Отсканируйте QR-код в приложении вашего банка для оплаты
@@ -760,45 +762,85 @@
             
             // Генерируем QR-код
             if (selectedPaymentMethod === 'qr') {
-                generateQRCode(total);
+                // Небольшая задержка, чтобы убедиться, что DOM обновлен
+                setTimeout(() => {
+                    generateQRCode(total);
+                }, 100);
             }
         });
     });
 
-    // Генерация QR-кода для оплаты
+    // Генерация QR-кода для оплаты через API (более надежный способ)
     function generateQRCode(amount) {
-        const canvas = document.getElementById('qrCode');
+        const container = document.querySelector('#qrInfo .qr-code-container');
         
-        // Проверяем, что библиотека QRCode загружена
-        if (typeof QRCode === 'undefined') {
-            canvas.parentElement.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-light);">Библиотека QR-кода не загружена</div>';
+        if (!container) {
+            console.error('Контейнер для QR-кода не найден');
             return;
         }
         
         // Формируем строку для QR-кода (формат для СБП)
-        // Используем формат СБП: телефон и сумма
-        // Для полноценной интеграции можно использовать формат ST00012 (СБП)
-        const qrData = `ST00012|Name=Магазин Шин|PersonalAcc=${SBP_PHONE.replace(/\D/g, '')}|Sum=${amount * 100}|Purpose=Оплата заказа в магазине шин`;
+        const phoneNumber = SBP_PHONE.replace(/\D/g, ''); // Убираем все нецифровые символы
         
-        // Альтернативный простой формат (может работать не во всех банках)
-        // const simpleQRData = `${SBP_PHONE.replace(/\D/g, '')}|${amount}`;
+        // Формат СБП: телефон|сумма в копейках
+        // Также можно использовать более детальный формат ST00012 для СБП
+        const qrData = `${phoneNumber}|${amount * 100}`;
         
-        // Генерируем QR-код
-        QRCode.toCanvas(canvas, qrData, {
-            width: 200,
-            margin: 2,
-            color: {
-                dark: '#000000',
-                light: '#FFFFFF'
-            },
-            errorCorrectionLevel: 'M'
-        }, function (error) {
-            if (error) {
-                console.error('Ошибка генерации QR-кода:', error);
-                const container = canvas.parentElement;
-                container.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-light);">Ошибка генерации QR-кода. Пожалуйста, используйте другой способ оплаты.</div>';
-            }
-        });
+        // Используем API для генерации QR-кода (более надежно, чем локальная библиотека)
+        const apiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=10&data=${encodeURIComponent(qrData)}`;
+        
+        // Показываем загрузку
+        container.innerHTML = `
+            <div style="padding: 20px; text-align: center; color: var(--text-light);">
+                <div style="margin-bottom: 10px;">⏳ Генерация QR-кода...</div>
+            </div>
+        `;
+        
+        // Создаем изображение QR-кода
+        const img = document.createElement('img');
+        img.id = 'qrCodeImg';
+        img.alt = 'QR код для оплаты';
+        img.style.cssText = 'border: 4px solid white; border-radius: 12px; padding: 12px; background: white; max-width: 100%; display: block; margin: 0 auto;';
+        img.src = apiUrl;
+        
+        // Обработка успешной загрузки
+        img.onload = function() {
+            container.innerHTML = '';
+            container.appendChild(img);
+        };
+        
+        // Обработка ошибки загрузки
+        img.onerror = function() {
+            console.error('Ошибка загрузки QR-кода с API, пробуем альтернативный способ...');
+            // Пробуем альтернативный API
+            const altApiUrl = `https://chart.googleapis.com/chart?cht=qr&chs=250x250&chl=${encodeURIComponent(qrData)}`;
+            const altImg = document.createElement('img');
+            altImg.style.cssText = img.style.cssText;
+            altImg.src = altApiUrl;
+            altImg.onload = function() {
+                container.innerHTML = '';
+                container.appendChild(altImg);
+            };
+            altImg.onerror = function() {
+                container.innerHTML = `
+                    <div style="padding: 40px; text-align: center; color: var(--text-light);">
+                        <div style="margin-bottom: 12px;">⚠️ Не удалось загрузить QR-код</div>
+                        <div style="font-size: 13px; margin-bottom: 16px;">Пожалуйста, используйте другой способ оплаты или попробуйте позже</div>
+                        <div style="font-size: 12px; background: var(--background); padding: 12px; border-radius: 8px; margin-top: 12px;">
+                            <strong>Для оплаты через СБП:</strong><br>
+                            Номер: ${formatPhoneNumber(SBP_PHONE)}<br>
+                            Сумма: ${amount} ₽
+                        </div>
+                    </div>
+                `;
+            };
+            container.innerHTML = '';
+            container.appendChild(altImg);
+        };
+        
+        // Добавляем изображение в контейнер
+        container.innerHTML = '';
+        container.appendChild(img);
     }
 
     // Функция для закрытия модального окна при клике вне его
