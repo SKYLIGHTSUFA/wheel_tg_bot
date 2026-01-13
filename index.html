@@ -490,57 +490,23 @@
 
     <div class="modal" id="paymentModal" onclick="handleModalClick(event)">
         <div class="modal-content" style="max-height: 90vh; overflow-y: auto;" onclick="event.stopPropagation();">
-            <h2 style="margin-bottom: 20px;">Выберите способ оплаты</h2>
-            <div id="paymentMethods">
-                <button class="payment-method-btn" data-method="cash">
-                    <span class="payment-method-icon">💵</span>
-                    <div style="flex: 1; text-align: left;">
-                        <div style="font-weight: 700;">Наличными</div>
-                        <div style="font-size: 13px; font-weight: normal; color: var(--text-light);">Оплата при получении</div>
-                    </div>
-                </button>
-                <button class="payment-method-btn" data-method="sbp">
-                    <span class="payment-method-icon">📱</span>
-                    <div style="flex: 1; text-align: left;">
-                        <div style="font-weight: 700;">СБП (Система быстрых платежей)</div>
-                        <div style="font-size: 13px; font-weight: normal; color: var(--text-light);">Быстрый перевод по номеру телефона</div>
-                    </div>
-                </button>
-                <button class="payment-method-btn" data-method="qr">
-                    <span class="payment-method-icon">📲</span>
-                    <div style="flex: 1; text-align: left;">
-                        <div style="font-weight: 700;">QR-код</div>
-                        <div style="font-size: 13px; font-weight: normal; color: var(--text-light);">Оплата по QR-коду</div>
-                    </div>
-                </button>
-            </div>
-            <div id="paymentInfo" style="display: none;">
+            <h2 style="margin-bottom: 20px;">Оплата заказа</h2>
+            <div id="paymentInfo">
                 <div class="payment-info" id="cashInfo">
-                    <div style="font-size: 48px; margin-bottom: 12px;">💵</div>
-                    <div style="font-weight: 600; margin-bottom: 8px;">Оплата наличными</div>
-                    <div style="color: var(--text-light);">Оплатите при получении заказа</div>
-                </div>
-                <div class="payment-info" id="sbpInfo" style="display: none;">
-                    <div style="font-size: 48px; margin-bottom: 12px;">📱</div>
-                    <div class="sbp-info">СБП (Система быстрых платежей)</div>
-                    <div class="sbp-phone" id="sbpPhone">+7 (999) 123-45-67</div>
-                    <div class="sbp-amount">Сумма: <span id="sbpAmount">0</span> ₽</div>
-                    <div style="margin-top: 16px; padding: 12px; background: var(--surface); border-radius: 8px; font-size: 13px; color: var(--text-light); margin-bottom: 16px;">
-                        Откройте приложение вашего банка, выберите "Перевод по номеру телефона" и введите указанный номер. Сумма будет списана автоматически.
+                    <div style="font-size: 48px; margin-bottom: 16px;">💵</div>
+                    <div style="font-weight: 600; margin-bottom: 16px; font-size: 20px;">Оплата наличными</div>
+                    <div style="margin-bottom: 20px; padding: 16px; background: var(--background); border-radius: 12px;">
+                        <div style="margin-bottom: 12px;">
+                            <div style="font-weight: 600; color: var(--primary); margin-bottom: 4px;">📍 Адрес:</div>
+                            <div style="font-size: 15px;" id="shopAddress">г. Уфа, ул. Трамвайная, д. 13/1</div>
+                        </div>
+                        <div>
+                            <div style="font-weight: 600; color: var(--primary); margin-bottom: 4px;">📞 Телефон:</div>
+                            <a href="tel:+79177364777" style="font-size: 15px; color: var(--text); text-decoration: none; font-weight: 500;" id="shopPhone">+7 (917) 736-47-77</a>
+                        </div>
                     </div>
-                    <a href="#" id="sbpLinkBtn" target="_blank" rel="noopener noreferrer" class="payment-link">
-                        <span>🔗</span>
-                        <span>Оплатить через СБП</span>
-                    </a>
-                </div>
-                <div class="payment-info" id="qrInfo" style="display: none;">
-                    <div style="font-size: 48px; margin-bottom: 12px;">📲</div>
-                    <div style="font-weight: 600; margin-bottom: 16px;">Оплата по QR-коду</div>
-                    <div class="qr-code-container" id="qrCodeContainer" style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
-                        <!-- QR-код будет загружен здесь -->
-                    </div>
-                    <div style="margin-top: 16px; padding: 12px; background: var(--surface); border-radius: 8px; font-size: 13px; color: var(--text-light);">
-                        Отсканируйте QR-код в приложении вашего банка для оплаты или перейдите по ссылке ниже
+                    <div style="padding: 12px; background: var(--surface); border-radius: 8px; font-size: 14px; color: var(--text-light); text-align: center;">
+                        Оплата производится при получении заказа
                     </div>
                 </div>
             </div>
@@ -703,11 +669,9 @@
         document.getElementById('bookingForm').reset();
     });
 
-    // --- 7. ОФОРМЛЕНИЕ ЗАКАЗА (с выбором способа оплаты) ---
-    let selectedPaymentMethod = null;
-    let SBP_PHONE = "+79991234567"; // По умолчанию, будет обновлен с сервера
-    let SBP_LINK = "https://www.sberbank.com/sms/pbpn?requisiteNumber=79225604849"; // Ссылка для оплаты через СБП
-    let QR_CODE_PATH = "/api/qr-code-image"; // Путь к изображению QR-кода
+    // --- 7. ОФОРМЛЕНИЕ ЗАКАЗА (только наличные) ---
+    let SHOP_ADDRESS = "г. Уфа, ул. Трамвайная, д. 13/1";
+    let SHOP_PHONE = "+79177364777";
 
     // Форматирование номера телефона для отображения
     function formatPhoneNumber(phone) {
@@ -726,18 +690,26 @@
         return phone;
     }
 
-    // Загружаем конфигурацию оплаты с сервера
+    // Загружаем конфигурацию магазина с сервера
     async function loadPaymentConfig() {
         try {
             const resp = await fetch(`${API_URL}/api/payment-config`);
             if (resp.ok) {
                 const config = await resp.json();
-                SBP_PHONE = config.sbp_phone || SBP_PHONE;
-                SBP_LINK = config.sbp_link || SBP_LINK;
-                QR_CODE_PATH = config.qr_code_path || QR_CODE_PATH;
+                SHOP_ADDRESS = config.shop_address || SHOP_ADDRESS;
+                SHOP_PHONE = config.shop_phone || SHOP_PHONE;
+                
+                // Обновляем информацию в модальном окне
+                const addressEl = document.getElementById('shopAddress');
+                const phoneEl = document.getElementById('shopPhone');
+                if (addressEl) addressEl.textContent = SHOP_ADDRESS;
+                if (phoneEl) {
+                    phoneEl.textContent = formatPhoneNumber(SHOP_PHONE);
+                    phoneEl.href = `tel:${SHOP_PHONE}`;
+                }
             }
         } catch (e) {
-            console.warn('Не удалось загрузить конфигурацию оплаты:', e);
+            console.warn('Не удалось загрузить конфигурацию магазина:', e);
         }
     }
 
@@ -747,136 +719,18 @@
             return;
         }
         
-        // Сбрасываем выбор способа оплаты
-        selectedPaymentMethod = null;
-        document.querySelectorAll('.payment-method-btn').forEach(btn => {
-            btn.classList.remove('selected');
-        });
-        document.getElementById('paymentInfo').style.display = 'none';
-        document.getElementById('cashInfo').style.display = 'none';
-        document.getElementById('sbpInfo').style.display = 'none';
-        document.getElementById('qrInfo').style.display = 'none';
-        
-        // Открываем модальное окно выбора оплаты
-        document.getElementById('paymentModal').classList.add('active');
-    });
-
-    // Обработка выбора способа оплаты
-    document.querySelectorAll('.payment-method-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            // Убираем выделение с всех кнопок
-            document.querySelectorAll('.payment-method-btn').forEach(b => {
-                b.classList.remove('selected');
-            });
-            
-            // Выделяем выбранную кнопку
-            btn.classList.add('selected');
-            selectedPaymentMethod = btn.dataset.method;
-            
-            // Показываем соответствующую информацию
-            const paymentInfo = document.getElementById('paymentInfo');
-            paymentInfo.style.display = 'block';
-            
-            document.getElementById('cashInfo').style.display = selectedPaymentMethod === 'cash' ? 'block' : 'none';
-            document.getElementById('sbpInfo').style.display = selectedPaymentMethod === 'sbp' ? 'block' : 'none';
-            document.getElementById('qrInfo').style.display = selectedPaymentMethod === 'qr' ? 'block' : 'none';
-            
-            const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-            
-            // Обновляем информацию для СБП
-            if (selectedPaymentMethod === 'sbp') {
-                // Форматируем номер телефона для отображения
-                const formattedPhone = formatPhoneNumber(SBP_PHONE);
-                document.getElementById('sbpPhone').textContent = formattedPhone;
-                document.getElementById('sbpAmount').textContent = total;
-                
-                // Обновляем ссылку для оплаты
-                const sbpLinkBtn = document.getElementById('sbpLinkBtn');
-                if (sbpLinkBtn && SBP_LINK) {
-                    sbpLinkBtn.href = SBP_LINK;
-                }
-            }
-            
-            // Генерируем QR-код
-            if (selectedPaymentMethod === 'qr') {
-                // Небольшая задержка, чтобы убедиться, что DOM обновлен
-                setTimeout(() => {
-                    generateQRCode(total);
-                }, 100);
-            }
-        });
-    });
-
-    // Загрузка QR-кода из локальной папки data
-    function generateQRCode(amount) {
-        const container = document.querySelector('#qrInfo .qr-code-container');
-        
-        if (!container) {
-            console.error('Контейнер для QR-кода не найден');
-            return;
+        // Обновляем информацию о магазине перед открытием модального окна
+        const addressEl = document.getElementById('shopAddress');
+        const phoneEl = document.getElementById('shopPhone');
+        if (addressEl) addressEl.textContent = SHOP_ADDRESS;
+        if (phoneEl) {
+            phoneEl.textContent = formatPhoneNumber(SHOP_PHONE);
+            phoneEl.href = `tel:${SHOP_PHONE}`;
         }
         
-        // Показываем загрузку
-        container.innerHTML = `
-            <div style="padding: 20px; text-align: center; color: var(--text-light);">
-                <div style="margin-bottom: 10px;">⏳ Загрузка QR-кода...</div>
-            </div>
-        `;
-        
-        // Создаем контейнер для QR-кода и ссылки
-        const qrWrapper = document.createElement('div');
-        qrWrapper.style.cssText = 'display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%;';
-        
-        // Создаем изображение QR-кода из локальной папки data
-        const img = document.createElement('img');
-        img.id = 'qrCodeImg';
-        img.alt = 'QR код для оплаты';
-        img.style.cssText = 'border: 4px solid white; border-radius: 12px; padding: 12px; background: white; max-width: 250px; width: 100%; height: auto; display: block;';
-        img.src = `${API_URL}${QR_CODE_PATH}`;
-        
-        // Создаем ссылку для оплаты через СБП
-        const linkContainer = document.createElement('div');
-        linkContainer.style.cssText = 'width: 100%; text-align: center;';
-        
-        const link = document.createElement('a');
-        link.href = SBP_LINK;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.className = 'payment-link';
-        link.innerHTML = `
-            <span>📱</span>
-            <span>Оплатить через СБП</span>
-        `;
-        
-        // Обработка успешной загрузки изображения
-        img.onload = function() {
-            linkContainer.appendChild(link);
-            qrWrapper.appendChild(img);
-            qrWrapper.appendChild(linkContainer);
-            container.innerHTML = '';
-            container.appendChild(qrWrapper);
-        };
-        
-        // Обработка ошибки загрузки изображения
-        img.onerror = function() {
-            console.error('Ошибка загрузки QR-кода из локальной папки');
-            // Показываем ссылку даже если изображение не загрузилось
-            linkContainer.appendChild(link);
-            qrWrapper.innerHTML = `
-                <div style="padding: 20px; text-align: center; color: var(--text-light); background: var(--background); border-radius: 12px; width: 100%;">
-                    <div style="margin-bottom: 12px; font-size: 48px;">📱</div>
-                    <div style="margin-bottom: 16px; font-weight: 600;">QR-код временно недоступен</div>
-                    <div style="margin-bottom: 16px; font-size: 13px;">Используйте ссылку ниже для оплаты через СБП</div>
-                </div>
-            `;
-            qrWrapper.appendChild(linkContainer);
-            container.innerHTML = '';
-            container.appendChild(qrWrapper);
-        };
-        
-        // Добавляем изображение в контейнер (начнет загружаться)
-        qrWrapper.appendChild(img);
-    }
+        // Открываем модальное окно оплаты
+        document.getElementById('paymentModal').classList.add('active');
+    });
 
     // Функция для закрытия модального окна при клике вне его
     window.handleModalClick = function(event) {
@@ -892,11 +746,6 @@
 
     // Кнопка "Подтвердить заказ"
     document.getElementById('paymentConfirmBtn').addEventListener('click', async () => {
-        if (!selectedPaymentMethod) {
-            alert('Пожалуйста, выберите способ оплаты');
-            return;
-        }
-        
         const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
         const user = tg?.initDataUnsafe?.user || {};
 
@@ -906,8 +755,8 @@
             full_name: [user.first_name, user.last_name].filter(Boolean).join(" "),
             items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
             total,
-            comment: `Заказ из WebApp. Способ оплаты: ${selectedPaymentMethod === 'cash' ? 'Наличными' : selectedPaymentMethod === 'sbp' ? 'СБП' : 'QR-код'}`,
-            payment_method: selectedPaymentMethod
+            comment: `Заказ из WebApp. Способ оплаты: Наличными. Адрес: ${SHOP_ADDRESS}. Телефон: ${SHOP_PHONE}`,
+            payment_method: "cash"
         };
 
         const btn = document.getElementById('paymentConfirmBtn');

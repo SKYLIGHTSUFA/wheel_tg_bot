@@ -31,9 +31,8 @@ BOT_TOKEN = "7854473349:AAEImt52KG7VHaaKzBXwHhEAuB2t94Onukw"
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
 ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
 WEBAPP_URL = "https://skylightsufa.github.io/wheel_tg_bot/"  # URL WebApp на GitHub Pages
-SBP_PHONE = os.environ.get("SBP_PHONE", "+79225604849")  # Номер телефона для СБП (без пробелов и дефисов)
-SBP_LINK = os.environ.get("SBP_LINK", "https://www.sberbank.com/sms/pbpn?requisiteNumber=79225604849")  # Ссылка для оплаты через СБП
-QR_CODE_IMAGE = os.environ.get("QR_CODE_IMAGE", "data/telegram-cloud-photo-size-2-5409346378732867883-x.jpg")  # Путь к изображению QR-кода 
+SHOP_ADDRESS = os.environ.get("SHOP_ADDRESS", "г. Уфа, ул. Трамвайная, д. 13/1")
+SHOP_PHONE = os.environ.get("SHOP_PHONE", "+79177364777") 
 
 # Создаем бота глобально, чтобы к нему был доступ из API
 bot = Bot(BOT_TOKEN)
@@ -170,29 +169,14 @@ async def api_products():
 async def get_payment_config():
     """Возвращает конфигурацию для способов оплаты"""
     return {
-        "sbp_phone": SBP_PHONE,
-        "sbp_link": SBP_LINK,
-        "qr_code_path": "/api/qr-code-image",
+        "shop_address": SHOP_ADDRESS,
+        "shop_phone": SHOP_PHONE,
         "methods": {
-            "cash": {"name": "Наличными", "available": True},
-            "sbp": {"name": "СБП (Система быстрых платежей)", "available": True},
-            "qr": {"name": "QR-код", "available": True}
+            "cash": {"name": "Наличными", "available": True}
         }
     }
 
 
-@app.get("/api/qr-code-image")
-async def get_qr_code_image():
-    """Возвращает изображение QR-кода из папки data"""
-    qr_path = os.path.join(os.path.dirname(__file__), QR_CODE_IMAGE)
-    if os.path.exists(qr_path):
-        return FileResponse(qr_path, media_type="image/jpeg")
-    else:
-        # Если файл не найден, возвращаем 404
-        return JSONResponse(
-            status_code=404,
-            content={"error": f"QR-код не найден по пути: {qr_path}"}
-        )
 
 
 # НОВЫЙ МЕТОД: Принимает заказ напрямую через HTTP
