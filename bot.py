@@ -254,12 +254,23 @@ async def create_order(order: OrderRequest):
 
 @dp.message(Command("start"))
 async def start(message: Message):
-    # Убедитесь, что url ведет на HTTPS версию
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🛞 Открыть магазин", web_app=WebAppInfo(url=WEBAPP_URL))]],
-        resize_keyboard=True
-    )
-    await message.answer("Откройте магазин кнопкой ниже:", reply_markup=kb)
+    # WebApp кнопки можно использовать только в приватных чатах
+    # Проверяем тип чата (в aiogram 3.x это строка: "private", "group", "supergroup", "channel")
+    if message.chat.type == "private":
+        # В приватном чате показываем WebApp кнопку
+        kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="🛞 Открыть магазин", web_app=WebAppInfo(url=WEBAPP_URL))]],
+            resize_keyboard=True
+        )
+        await message.answer("Откройте магазин кнопкой ниже:", reply_markup=kb)
+    else:
+        # В группах и каналах отправляем просто ссылку без WebApp кнопки
+        await message.answer(
+            f"🛞 <b>Магазин шин</b>\n\n"
+            f"Для работы с магазином перейдите в приватный чат с ботом и используйте команду /start\n\n"
+            f"Или откройте магазин напрямую: {WEBAPP_URL}",
+            parse_mode="HTML"
+        )
 
 
 @dp.message(Command("setadmin"))
