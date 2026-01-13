@@ -403,7 +403,7 @@ async def process_specs(message: Message, state: FSMContext):
     # Проверяем, не отмена ли это
     if message.text and message.text.strip().lower() == "/cancel":
         await state.clear()
-        return await message.answer("✅ Операция отменена  ")
+        return await message.answer("✅ Операция отменена    ")
     
     specs_text = message.text.strip()
     
