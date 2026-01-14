@@ -6,45 +6,38 @@
     <title>Магазин Шин - TireShop</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
-        // Автоматический обход предупреждения ngrok для мобильных устройств
+        // Автоматический обход предупреждений туннелей (ngrok, cloudflare и т.д.)
         (function() {
             // Проверяем сразу при загрузке
-            function checkNgrokWarning() {
-                // Проверяем заголовок страницы
+            function checkTunnelWarning() {
                 const title = document.title || '';
                 const bodyText = document.body ? document.body.textContent : '';
-                const hasNgrokWarning = title.includes('ngrok') || 
-                                       bodyText.includes('ngrok') && 
-                                       (bodyText.includes('You are about to visit') || 
-                                        bodyText.includes('Visit Site') ||
-                                        bodyText.includes('Be careful about disclosing'));
+                // Проверяем различные предупреждения туннелей
+                const hasWarning = (title.includes('ngrok') || bodyText.includes('ngrok') || 
+                                   bodyText.includes('cloudflare') || bodyText.includes('tunnel')) && 
+                                  (bodyText.includes('You are about to visit') || 
+                                   bodyText.includes('Visit Site') ||
+                                   bodyText.includes('Be careful about disclosing'));
                 
-                if (hasNgrokWarning) {
+                if (hasWarning) {
                     // Пытаемся найти и кликнуть кнопку "Visit Site"
                     setTimeout(() => {
-                        const visitButton = document.querySelector('a[href*="ngrok"], button[type="submit"], input[type="submit"]');
+                        const visitButton = document.querySelector('a[href*="tunnel"], a[href*="ngrok"], button[type="submit"], input[type="submit"]');
                         if (visitButton) {
                             visitButton.click();
-                        } else {
-                            // Если кнопка не найдена, добавляем параметр в URL
-                            if (!window.location.href.includes('ngrok-skip-browser-warning')) {
-                                const separator = window.location.href.includes('?') ? '&' : '?';
-                                window.location.href = window.location.href + separator + 'ngrok-skip-browser-warning=true';
-                            }
                         }
                     }, 100);
                 }
             }
             
-            // Проверяем сразу
+            // Проверяем сразу и после загрузки DOM
             if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', checkNgrokWarning);
+                document.addEventListener('DOMContentLoaded', checkTunnelWarning);
             } else {
-                checkNgrokWarning();
+                checkTunnelWarning();
             }
             
-            // Также проверяем через небольшую задержку (на случай, если ngrok загружается асинхронно)
-            setTimeout(checkNgrokWarning, 500);
+            setTimeout(checkTunnelWarning, 500);
         })();
     </script>
     <style>
@@ -582,9 +575,9 @@
         <button class="nav-btn" id="navCart">Корзина</button>
     </div>
 <script>
-    // API_URL должен совпадать с WEBAPP_URL из bot.py
-    // Если используется ngrok, укажите полный URL здесь
-    const API_URL = window.location.origin || "https://unedited-caren-leptospiral.ngrok-free.dev";
+    // API_URL автоматически устанавливается сервером на основе текущего домена
+    // Если не установлен, используем текущий origin
+    const API_URL = window.location.origin || "";
     const tg = window.Telegram?.WebApp;
     if (tg) {
         tg.ready();

@@ -32,10 +32,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = "8576138519:AAES_lBttGBQ-cvJ_HvcDjTNzYyoGYBOneE"
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8576138519:AAES_lBttGBQ-cvJ_HvcDjTNzYyoGYBOneE")
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
 ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
-WEBAPP_URL = "https://unedited-caren-leptospiral.ngrok-free.dev"
+# WEBAPP_URL берется из переменной окружения или генерируется автоматически
+WEBAPP_URL = os.environ.get("WEBAPP_URL", "")
 SHOP_ADDRESS = os.environ.get("SHOP_ADDRESS", "г. Уфа, ул. Трамвайная, д. 13/1")
 SHOP_PHONE = os.environ.get("SHOP_PHONE", "+79177364777")
 SHOP_PHONES = {
@@ -52,19 +53,18 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 app = FastAPI(title="KolesaUfa API")
 
-# --- MIDDLEWARE для ngrok ---
-class NgrokSkipWarningMiddleware(BaseHTTPMiddleware):
+# --- MIDDLEWARE для туннелей и WebApp ---
+class WebAppMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: StarletteRequest, call_next):
-        # Добавляем заголовок для пропуска предупреждения ngrok
         response = await call_next(request)
-        # Устанавливаем заголовок, который ngrok использует для пропуска предупреждения
-        response.headers["ngrok-skip-browser-warning"] = "true"
         # Разрешаем встраивание в iframe (для Telegram WebApp)
         response.headers["X-Frame-Options"] = "ALLOWALL"
         response.headers["Content-Security-Policy"] = "frame-ancestors *"
+        # Заголовки для различных туннелей (ngrok, cloudflare и т.д.)
+        response.headers["ngrok-skip-browser-warning"] = "true"
         return response
 
-app.add_middleware(NgrokSkipWarningMiddleware)
+app.add_middleware(WebAppMiddleware)
 
 # --- CORS ---
 app.add_middleware(
@@ -150,6 +150,15 @@ def is_admin(user_id: Optional[int]) -> bool:
 
 # --- API ENDPOINTS ---
 
+def get_webapp_url(request: Request = None) -> str:
+    """Получает URL WebApp из переменной окружения или генерирует из запроса"""
+    if WEBAPP_URL:
+        return WEBAPP_URL
+    if request:
+        return str(request.url).rstrip('/').replace('/index.html', '')
+    return ""
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Возвращает index.html для Telegram WebApp"""
@@ -159,9 +168,9 @@ async def root(request: Request):
             html_content = f.read()
             # Заменяем пустой API_URL на текущий домен
             current_url = str(request.url).rstrip('/')
-            html_content = html_content.replace('const API_URL = window.location.origin || "https://unedited-caren-leptospiral.ngrok-free.dev";', 
+            html_content = html_content.replace('const API_URL = window.location.origin || "";', 
                                                 f'const API_URL = "{current_url}";')
-            # Добавляем заголовки для ngrok
+            # Добавляем заголовки для WebApp
             response = HTMLResponse(content=html_content)
             response.headers["ngrok-skip-browser-warning"] = "true"
             response.headers["X-Frame-Options"] = "ALLOWALL"
@@ -179,9 +188,9 @@ async def index_html(request: Request):
             html_content = f.read()
             # Заменяем пустой API_URL на текущий домен
             current_url = str(request.url).rstrip('/').replace('/index.html', '')
-            html_content = html_content.replace('const API_URL = window.location.origin || "https://unedited-caren-leptospiral.ngrok-free.dev";', 
+            html_content = html_content.replace('const API_URL = window.location.origin || "";', 
                                                 f'const API_URL = "{current_url}";')
-            # Добавляем заголовки для ngrok
+            # Добавляем заголовки для WebApp
             response = HTMLResponse(content=html_content)
             response.headers["ngrok-skip-browser-warning"] = "true"
             response.headers["X-Frame-Options"] = "ALLOWALL"
@@ -335,21 +344,31 @@ async def create_order(order: OrderRequest):
 
 @dp.message(Command("start"))
 async def start(message: Message):
+    # Получаем URL WebApp
+    webapp_url = WEBAPP_URL if WEBAPP_URL else "https://your-app.onrender.com"  # Заглушка, если не установлен
+    
     # WebApp кнопки можно использовать только в приватных чатах
     # Проверяем тип чата (в aiogram 3.x это строка: "private", "group", "supergroup", "channel")
     if message.chat.type == "private":
         # В приватном чате показываем WebApp кнопку
-        kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="🛞 Открыть магазин", web_app=WebAppInfo(url=WEBAPP_URL))]],
-            resize_keyboard=True
-        )
-        await message.answer("Откройте магазин кнопкой ниже:", reply_markup=kb)
+        if webapp_url and webapp_url != "https://your-app.onrender.com":
+            kb = ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text="🛞 Открыть магазин", web_app=WebAppInfo(url=webapp_url))]],
+                resize_keyboard=True
+            )
+            await message.answer("Откройте магазин кнопкой ниже:", reply_markup=kb)
+        else:
+            await message.answer(
+                "⚠️ <b>WebApp URL не настроен</b>\n\n"
+                "Пожалуйста, установите переменную окружения WEBAPP_URL в настройках Render.",
+                parse_mode="HTML"
+            )
     else:
         # В группах и каналах отправляем просто ссылку без WebApp кнопки
         await message.answer(
             f"🛞 <b>Магазин шин</b>\n\n"
             f"Для работы с магазином перейдите в приватный чат с ботом и используйте команду /start\n\n"
-            f"Или откройте магазин напрямую: {WEBAPP_URL}",
+            f"Или откройте магазин напрямую: {webapp_url}",
             parse_mode="HTML"
         )
 
