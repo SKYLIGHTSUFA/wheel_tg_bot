@@ -13,11 +13,16 @@ from aiogram.filters.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response
 from pydantic import BaseModel
 import uvicorn
+import shutil
+import uuid
 
 # Настройка логирования
 logging.basicConfig(
@@ -27,12 +32,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = "7854473349:AAEImt52KG7VHaaKzBXwHhEAuB2t94Onukw"
+BOT_TOKEN = "8576138519:AAES_lBttGBQ-cvJ_HvcDjTNzYyoGYBOneE"
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
 ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
-WEBAPP_URL = "https://skylightsufa.github.io/wheel_tg_bot/"  # URL WebApp на GitHub Pages
+WEBAPP_URL = "https://unedited-caren-leptospiral.ngrok-free.dev"
 SHOP_ADDRESS = os.environ.get("SHOP_ADDRESS", "г. Уфа, ул. Трамвайная, д. 13/1")
-SHOP_PHONE = os.environ.get("SHOP_PHONE", "+79177364777") 
+SHOP_PHONE = os.environ.get("SHOP_PHONE", "+79177364777")
+SHOP_PHONES = {
+    "warehouse_1": "+79613722902",  # Склад, рабочий номер
+    "warehouse_2": "+79962853700",  # Склад, рабочий номер
+    "consultation": "+79371512083"  # Консультация
+}
+SHOP_HOURS = "Работаем без выходных с 9 утра до 9 вечера"
+SHOP_DELIVERY = "Отправка транспортной компанией" 
 
 # Создаем бота глобально, чтобы к нему был доступ из API
 bot = Bot(BOT_TOKEN)
@@ -40,13 +52,28 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 app = FastAPI(title="KolesaUfa API")
 
+# --- MIDDLEWARE для ngrok ---
+class NgrokSkipWarningMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        # Добавляем заголовок для пропуска предупреждения ngrok
+        response = await call_next(request)
+        # Устанавливаем заголовок, который ngrok использует для пропуска предупреждения
+        response.headers["ngrok-skip-browser-warning"] = "true"
+        # Разрешаем встраивание в iframe (для Telegram WebApp)
+        response.headers["X-Frame-Options"] = "ALLOWALL"
+        response.headers["Content-Security-Policy"] = "frame-ancestors *"
+        return response
+
+app.add_middleware(NgrokSkipWarningMiddleware)
+
 # --- CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "ngrok-skip-browser-warning"],
+    expose_headers=["*"],
 )
 
 ADMIN_IDS = set()
@@ -124,32 +151,54 @@ def is_admin(user_id: Optional[int]) -> bool:
 # --- API ENDPOINTS ---
 
 @app.get("/", response_class=HTMLResponse)
-async def root():
+async def root(request: Request):
     """Возвращает index.html для Telegram WebApp"""
     html_path = os.path.join(os.path.dirname(__file__), "index.html")
     try:
         with open(html_path, "r", encoding="utf-8") as f:
-            return f.read()
+            html_content = f.read()
+            # Заменяем пустой API_URL на текущий домен
+            current_url = str(request.url).rstrip('/')
+            html_content = html_content.replace('const API_URL = window.location.origin || "https://unedited-caren-leptospiral.ngrok-free.dev";', 
+                                                f'const API_URL = "{current_url}";')
+            # Добавляем заголовки для ngrok
+            response = HTMLResponse(content=html_content)
+            response.headers["ngrok-skip-browser-warning"] = "true"
+            response.headers["X-Frame-Options"] = "ALLOWALL"
+            return response
     except FileNotFoundError:
         return HTMLResponse(content="<h1>WebApp not found</h1>", status_code=404)
 
 
 @app.get("/index.html", response_class=HTMLResponse)
-async def index_html():
+async def index_html(request: Request):
     """Альтернативный путь к index.html"""
     html_path = os.path.join(os.path.dirname(__file__), "index.html")
     try:
         with open(html_path, "r", encoding="utf-8") as f:
-            return f.read()
+            html_content = f.read()
+            # Заменяем пустой API_URL на текущий домен
+            current_url = str(request.url).rstrip('/').replace('/index.html', '')
+            html_content = html_content.replace('const API_URL = window.location.origin || "https://unedited-caren-leptospiral.ngrok-free.dev";', 
+                                                f'const API_URL = "{current_url}";')
+            # Добавляем заголовки для ngrok
+            response = HTMLResponse(content=html_content)
+            response.headers["ngrok-skip-browser-warning"] = "true"
+            response.headers["X-Frame-Options"] = "ALLOWALL"
+            return response
     except FileNotFoundError:
         return HTMLResponse(content="<h1>WebApp not found</h1>", status_code=404)
 
 
 @app.get("/api/products")
-async def api_products():
+async def api_products(admin: bool = False):
+    """Возвращает список товаров. Если admin=True, возвращает все товары включая неактивные"""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM products WHERE active=1 ORDER BY id DESC")
+        if admin:
+            cur = await db.execute("SELECT * FROM products ORDER BY id DESC")
+        else:
+            cur = await db.execute("SELECT * FROM products WHERE active=1 ORDER BY id DESC")
         rows = await cur.fetchall()
 
     out = []
@@ -161,8 +210,49 @@ async def api_products():
             "image": r["image"],
             "description": r["description"],
             "specs": json.loads(r["specs"] or "[]"),
+            "active": r["active"] if admin else None,
         })
     return out
+
+
+@app.delete("/api/products/{product_id}")
+async def delete_product(product_id: int):
+    """Удаляет товар (помечает как неактивный)"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE products SET active=0 WHERE id=?", (product_id,))
+        await db.commit()
+    return {"status": "ok", "message": "Товар удален"}
+
+
+@app.post("/api/products/upload-image")
+async def upload_image(file: UploadFile = File(...)):
+    """Загружает изображение товара и возвращает путь к нему"""
+    # Создаем папку для изображений, если её нет
+    upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    # Генерируем уникальное имя файла
+    file_ext = os.path.splitext(file.filename)[1] if file.filename else ".jpg"
+    file_name = f"{uuid.uuid4()}{file_ext}"
+    file_path = os.path.join(upload_dir, file_name)
+    
+    # Сохраняем файл
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    # Возвращаем относительный путь для использования в API
+    return {"status": "ok", "image_path": f"/api/uploads/{file_name}"}
+
+
+@app.get("/api/uploads/{filename}")
+async def get_uploaded_image(filename: str):
+    """Возвращает загруженное изображение"""
+    upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
+    file_path = os.path.join(upload_dir, filename)
+    if os.path.exists(file_path):
+        return FileResponse(file_path)
+    else:
+        return JSONResponse(status_code=404, content={"error": "File not found"})
 
 
 @app.get("/api/payment-config")
@@ -171,6 +261,9 @@ async def get_payment_config():
     return {
         "shop_address": SHOP_ADDRESS,
         "shop_phone": SHOP_PHONE,
+        "shop_phones": SHOP_PHONES,
+        "shop_hours": SHOP_HOURS,
+        "shop_delivery": SHOP_DELIVERY,
         "methods": {
             "cash": {"name": "Наличными", "available": True}
         }
@@ -222,6 +315,10 @@ async def create_order(order: OrderRequest):
         "qr": "QR-код"
     }
     lines.append(f"\n💳 <b>Способ оплаты:</b> {payment_emoji.get(payment_method, '💵')} {payment_name.get(payment_method, 'Наличными')}")
+    
+    # Добавляем информацию о работе магазина
+    lines.append(f"\n🕐 <b>Режим работы:</b> {SHOP_HOURS}")
+    lines.append(f"🚚 <b>Доставка:</b> {SHOP_DELIVERY}")
 
     text = "\n".join(lines)
 
@@ -261,6 +358,65 @@ async def start(message: Message):
 async def cmd_setadmin(message: Message):
     ADMIN_IDS.add(message.from_user.id)
     await message.answer(f"Готово. Добавлен админ: {message.from_user.id}")
+
+
+@dp.message(Command("products"))
+async def cmd_products(message: Message):
+    """Показывает список всех товаров с возможностью удаления (только для админов)"""
+    if not is_admin(message.from_user.id):
+        return await message.answer("❌ У вас нет прав администратора")
+    
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM products ORDER BY id DESC LIMIT 20")
+        rows = await cur.fetchall()
+    
+    if not rows:
+        return await message.answer("📦 Товаров пока нет. Используйте /add для добавления.")
+    
+    text_lines = ["📦 <b>Список товаров:</b>\n"]
+    buttons = []
+    
+    for r in rows:
+        status = "✅" if r["active"] else "❌"
+        text_lines.append(f"{status} <b>{r['name']}</b> — {r['price']} ₽ (ID: {r['id']})")
+        buttons.append([InlineKeyboardButton(
+            text=f"{'❌ Удалить' if r['active'] else '✅ Восстановить'} {r['name']}",
+            callback_data=f"toggle_product_{r['id']}"
+        )])
+    
+    text = "\n".join(text_lines)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@dp.callback_query(F.data.startswith("toggle_product_"))
+async def toggle_product(callback: CallbackQuery):
+    """Переключает статус товара (активный/неактивный)"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ У вас нет прав администратора", show_alert=True)
+        return
+    
+    product_id = int(callback.data.replace("toggle_product_", ""))
+    
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Получаем текущий статус
+        cur = await db.execute("SELECT active FROM products WHERE id=?", (product_id,))
+        row = await cur.fetchone()
+        if not row:
+            await callback.answer("❌ Товар не найден", show_alert=True)
+            return
+        
+        new_status = 0 if row[0] else 1
+        await db.execute("UPDATE products SET active=? WHERE id=?", (new_status, product_id))
+        await db.commit()
+    
+    action = "удален" if new_status == 0 else "восстановлен"
+    await callback.answer(f"✅ Товар {action}")
+    
+    # Обновляем сообщение
+    await cmd_products(callback.message)
 
 
 @dp.message(Command("cancel"))
@@ -345,15 +501,73 @@ async def process_price(message: Message, state: FSMContext):
     await state.set_state(AddProduct.waiting_image)
     await message.answer(
         f"✅ Цена: <b>{price} ₽</b>\n\n"
-        "🖼️ <b>Шаг 3/5:</b> Выберите эмодзи для товара:",
+        "🖼️ <b>Шаг 3/5:</b> Отправьте фото товара, выберите эмодзи или отправьте \"-\" чтобы пропустить:",
         reply_markup=get_image_keyboard(),
         parse_mode="HTML"
     )
 
 
+@dp.message(AddProduct.waiting_image)
+async def process_image(message: Message, state: FSMContext):
+    """Обрабатывает изображение товара (фото или эмодзи)"""
+    # Проверяем, не отмена ли это
+    if message.text and message.text.strip().lower() == "/cancel":
+        await state.clear()
+        return await message.answer("✅ Операция отменена")
+    
+    image = "🛞"  # Значение по умолчанию
+    
+    # Если отправлено фото
+    if message.photo:
+        # Берем самое большое фото
+        photo = message.photo[-1]
+        file_info = await bot.get_file(photo.file_id)
+        file_path = file_info.file_path
+        
+        # Сохраняем фото локально
+        upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        file_ext = os.path.splitext(file_path)[1] or ".jpg"
+        file_name = f"{uuid.uuid4()}{file_ext}"
+        local_path = os.path.join(upload_dir, file_name)
+        
+        # Скачиваем файл
+        await bot.download_file(file_path, local_path)
+        
+        # Сохраняем путь к изображению
+        image = f"/api/uploads/{file_name}"
+        await state.update_data(image=image)
+        await state.set_state(AddProduct.waiting_description)
+        await message.answer(
+            f"✅ Фото загружено\n\n"
+            "📄 <b>Шаг 4/5:</b> Введите описание товара (или отправьте \"-\" чтобы пропустить):",
+            parse_mode="HTML"
+        )
+    elif message.text:
+        # Если текст, используем как эмодзи или URL
+        text = message.text.strip()
+        if text == "-":
+            image = "🛞"
+        # Если это URL или путь, используем его
+        elif text.startswith("http") or text.startswith("/api/"):
+            image = text
+        else:
+            # Иначе используем как эмодзи
+            image = text[:1] if len(text) > 0 else "🛞"
+        
+        await state.update_data(image=image)
+        await state.set_state(AddProduct.waiting_description)
+        await message.answer(
+            f"✅ Изображение: <b>{image}</b>\n\n"
+            "📄 <b>Шаг 4/5:</b> Введите описание товара (или отправьте \"-\" чтобы пропустить):",
+            parse_mode="HTML"
+        )
+
+
 @dp.callback_query(F.data.startswith("img_"), StateFilter(AddProduct.waiting_image))
-async def process_image(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает выбор эмодзи"""
+async def process_image_emoji(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает выбор эмодзи через кнопку"""
     image = callback.data.replace("img_", "")
     
     if image == "skip":

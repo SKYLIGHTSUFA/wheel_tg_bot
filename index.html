@@ -5,6 +5,48 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Магазин Шин - TireShop</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+        // Автоматический обход предупреждения ngrok для мобильных устройств
+        (function() {
+            // Проверяем сразу при загрузке
+            function checkNgrokWarning() {
+                // Проверяем заголовок страницы
+                const title = document.title || '';
+                const bodyText = document.body ? document.body.textContent : '';
+                const hasNgrokWarning = title.includes('ngrok') || 
+                                       bodyText.includes('ngrok') && 
+                                       (bodyText.includes('You are about to visit') || 
+                                        bodyText.includes('Visit Site') ||
+                                        bodyText.includes('Be careful about disclosing'));
+                
+                if (hasNgrokWarning) {
+                    // Пытаемся найти и кликнуть кнопку "Visit Site"
+                    setTimeout(() => {
+                        const visitButton = document.querySelector('a[href*="ngrok"], button[type="submit"], input[type="submit"]');
+                        if (visitButton) {
+                            visitButton.click();
+                        } else {
+                            // Если кнопка не найдена, добавляем параметр в URL
+                            if (!window.location.href.includes('ngrok-skip-browser-warning')) {
+                                const separator = window.location.href.includes('?') ? '&' : '?';
+                                window.location.href = window.location.href + separator + 'ngrok-skip-browser-warning=true';
+                            }
+                        }
+                    }, 100);
+                }
+            }
+            
+            // Проверяем сразу
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', checkNgrokWarning);
+            } else {
+                checkNgrokWarning();
+            }
+            
+            // Также проверяем через небольшую задержку (на случай, если ngrok загружается асинхронно)
+            setTimeout(checkNgrokWarning, 500);
+        })();
+    </script>
     <style>
         * {
             margin: 0;
@@ -136,6 +178,14 @@
             align-items: center;
             justify-content: center;
             font-size: 60px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .product-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
 
         .product-info {
@@ -493,16 +543,26 @@
             <h2 style="margin-bottom: 20px;">Оплата заказа</h2>
             <div id="paymentInfo">
                 <div class="payment-info" id="cashInfo">
-                    <div style="font-size: 48px; margin-bottom: 16px;">💵</div>
-                    <div style="font-weight: 600; margin-bottom: 16px; font-size: 20px;">Оплата наличными</div>
                     <div style="margin-bottom: 20px; padding: 16px; background: var(--background); border-radius: 12px;">
                         <div style="margin-bottom: 12px;">
                             <div style="font-weight: 600; color: var(--primary); margin-bottom: 4px;">📍 Адрес:</div>
                             <div style="font-size: 15px;" id="shopAddress">г. Уфа, ул. Трамвайная, д. 13/1</div>
                         </div>
-                        <div>
-                            <div style="font-weight: 600; color: var(--primary); margin-bottom: 4px;">📞 Телефон:</div>
-                            <a href="tel:+79177364777" style="font-size: 15px; color: var(--text); text-decoration: none; font-weight: 500;" id="shopPhone">+7 (917) 736-47-77</a>
+                        <div style="margin-bottom: 12px;">
+                            <div style="font-weight: 600; color: var(--primary); margin-bottom: 4px;">📞 Телефоны:</div>
+                            <div style="font-size: 14px; line-height: 1.8;">
+                                <div>📦 Склад: <a href="tel:+79613722902" style="color: var(--text); text-decoration: none; font-weight: 500;">+7 (961) 372-29-02</a></div>
+                                <div>📦 Склад: <a href="tel:+79962853700" style="color: var(--text); text-decoration: none; font-weight: 500;">+7 (996) 285-37-00</a></div>
+                                <div>💬 Консультация: <a href="tel:+79371512083" style="color: var(--text); text-decoration: none; font-weight: 500;">+7 (937) 151-20-83</a></div>
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                            <div style="font-weight: 600; color: var(--primary); margin-bottom: 4px;">🕐 Режим работы:</div>
+                            <div style="font-size: 14px;" id="shopHours">Работаем без выходных с 09:00 до 21:00 </div>
+                        </div>
+                        <div style="padding-top: 12px; border-top: 1px solid var(--border);">
+                            <div style="font-weight: 600; color: var(--primary); margin-bottom: 4px;">🚚 Доставка:</div>
+                            <div style="font-size: 14px;" id="shopDelivery">Отправка транспортной компанией</div>
                         </div>
                     </div>
                     <div style="padding: 12px; background: var(--surface); border-radius: 8px; font-size: 14px; color: var(--text-light); text-align: center;">
@@ -522,7 +582,9 @@
         <button class="nav-btn" id="navCart">Корзина</button>
     </div>
 <script>
-    const API_URL = "https://wheel-tg-bot.onrender.com";
+    // API_URL должен совпадать с WEBAPP_URL из bot.py
+    // Если используется ngrok, укажите полный URL здесь
+    const API_URL = window.location.origin || "https://unedited-caren-leptospiral.ngrok-free.dev";
     const tg = window.Telegram?.WebApp;
     if (tg) {
         tg.ready();
@@ -535,7 +597,10 @@
     // --- 1. ЗАГРУЗКА ТОВАРОВ ---
     async function loadProducts() {
         try {
-            const r = await fetch(`${API_URL}/api/products`);
+            const r = await fetch(`${API_URL}/api/products`, {
+    headers: { "ngrok-skip-browser-warning": "true" }
+});
+
             if (!r.ok) {
                 const t = await r.text();
                 alert(`Ошибка загрузки: HTTP ${r.status}\n${t.slice(0, 200)}`);
@@ -552,9 +617,17 @@
 
     // --- 2. ОТРИСОВКА СПИСКА ---
     function renderProducts(data = products) {
-        document.getElementById('productsGrid').innerHTML = data.map(p => `
+        document.getElementById('productsGrid').innerHTML = data.map(p => {
+            // Определяем, является ли image URL или эмодзи
+            const isImageUrl = p.image && (p.image.startsWith('http') || p.image.startsWith('/api/'));
+            const escapedImage = (p.image || '🛞').replace(/'/g, "\\'");
+            const imageContent = isImageUrl 
+                ? `<img src="${API_URL}${p.image.startsWith('/') ? '' : '/'}${p.image}" alt="${p.name}" onerror="this.parentElement.innerHTML='${escapedImage}'">`
+                : p.image || '🛞';
+            
+            return `
         <div class="product-card">
-            <div class="product-image">${p.image}</div>
+            <div class="product-image">${imageContent}</div>
             <div class="product-info">
                 <div class="product-name">${p.name}</div>
                 <div class="product-price">${p.price} ₽</div>
@@ -566,7 +639,8 @@
                 </div>
             </div>
         </div>
-        `).join('');
+        `;
+        }).join('');
     }
 
     // --- 3. ЛОГИКА КОРЗИНЫ ---
@@ -672,6 +746,8 @@
     // --- 7. ОФОРМЛЕНИЕ ЗАКАЗА (только наличные) ---
     let SHOP_ADDRESS = "г. Уфа, ул. Трамвайная, д. 13/1";
     let SHOP_PHONE = "+79177364777";
+    let SHOP_HOURS = "Работаем без выходных с 09:00 до 21:00";
+    let SHOP_DELIVERY = "Отправка транспортной компанией";
 
     // Форматирование номера телефона для отображения
     function formatPhoneNumber(phone) {
@@ -693,20 +769,25 @@
     // Загружаем конфигурацию магазина с сервера
     async function loadPaymentConfig() {
         try {
-            const resp = await fetch(`${API_URL}/api/payment-config`);
+            const resp = await fetch(`${API_URL}/api/payment-config`, {
+                headers: { "ngrok-skip-browser-warning": "true" }
+            });
+
             if (resp.ok) {
                 const config = await resp.json();
                 SHOP_ADDRESS = config.shop_address || SHOP_ADDRESS;
                 SHOP_PHONE = config.shop_phone || SHOP_PHONE;
+                SHOP_HOURS = config.shop_hours || SHOP_HOURS;
+                SHOP_DELIVERY = config.shop_delivery || SHOP_DELIVERY;
                 
                 // Обновляем информацию в модальном окне
                 const addressEl = document.getElementById('shopAddress');
-                const phoneEl = document.getElementById('shopPhone');
+                const hoursEl = document.getElementById('shopHours');
+                const deliveryEl = document.getElementById('shopDelivery');
+                
                 if (addressEl) addressEl.textContent = SHOP_ADDRESS;
-                if (phoneEl) {
-                    phoneEl.textContent = formatPhoneNumber(SHOP_PHONE);
-                    phoneEl.href = `tel:${SHOP_PHONE}`;
-                }
+                if (hoursEl) hoursEl.textContent = SHOP_HOURS;
+                if (deliveryEl) deliveryEl.textContent = SHOP_DELIVERY;
             }
         } catch (e) {
             console.warn('Не удалось загрузить конфигурацию магазина:', e);
@@ -721,12 +802,12 @@
         
         // Обновляем информацию о магазине перед открытием модального окна
         const addressEl = document.getElementById('shopAddress');
-        const phoneEl = document.getElementById('shopPhone');
+        const hoursEl = document.getElementById('shopHours');
+        const deliveryEl = document.getElementById('shopDelivery');
+        
         if (addressEl) addressEl.textContent = SHOP_ADDRESS;
-        if (phoneEl) {
-            phoneEl.textContent = formatPhoneNumber(SHOP_PHONE);
-            phoneEl.href = `tel:${SHOP_PHONE}`;
-        }
+        if (hoursEl) hoursEl.textContent = SHOP_HOURS;
+        if (deliveryEl) deliveryEl.textContent = SHOP_DELIVERY;
         
         // Открываем модальное окно оплаты
         document.getElementById('paymentModal').classList.add('active');
@@ -755,7 +836,7 @@
             full_name: [user.first_name, user.last_name].filter(Boolean).join(" "),
             items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
             total,
-            comment: `Заказ из WebApp. Способ оплаты: Наличными. Адрес: ${SHOP_ADDRESS}. Телефон: ${SHOP_PHONE}`,
+            comment: `Заказ из WebApp. Адрес: ${SHOP_ADDRESS}. Телефон: ${SHOP_PHONE}`,
             payment_method: "cash"
         };
 
@@ -766,10 +847,13 @@
 
         try {
             const resp = await fetch(`${API_URL}/api/order`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
+    method: "POST",
+    headers: { 
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true" 
+    },
+    body: JSON.stringify(payload),
+});
 
             const text = await resp.text();
             let data = null;
