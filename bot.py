@@ -36,7 +36,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8576138519:AAES_lBttGBQ-cvJ_HvcDjTNzYyo
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
 ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
 # WEBAPP_URL берется из переменной окружения или генерируется автоматически
-WEBAPP_URL = os.environ.get("WEBAPP_URL", "")
+WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://1b2a4dddb764e0.lhr.life/")
 SHOP_ADDRESS = os.environ.get("SHOP_ADDRESS", "г. Уфа, ул. Трамвайная, д. 13/1")
 SHOP_PHONE = os.environ.get("SHOP_PHONE", "+79177364777")
 SHOP_PHONES = {
@@ -44,7 +44,7 @@ SHOP_PHONES = {
     "warehouse_2": "+79962853700",  # Склад, рабочий номер
     "consultation": "+79371512083"  # Консультация
 }
-SHOP_HOURS = "Работаем без выходных с 9 утра до 9 вечера"
+SHOP_HOURS = "Работаем без выходных с 09:00 до 21:00"
 SHOP_DELIVERY = "Отправка транспортной компанией" 
 
 # Создаем бота глобально, чтобы к нему был доступ из API
@@ -300,10 +300,7 @@ async def create_order(order: OrderRequest):
         user_link = f"<a href='tg://user?id={order.user_id}'>{order.full_name}</a>"
         lines.append(f"👤 Клиент: {user_link} (ID: {order.user_id})")
     if order.username:
-        lines.append(f"🔗 @{order.username}")
-
-    if order.comment:
-        lines.append(f"💬 Комментарий: <i>{order.comment}</i>")
+        lines.append(f"💬 Комментарий: @{order.username}")
 
     lines.append("\n🛒 <b>Товары:</b>")
     for item in order.items:
@@ -324,10 +321,6 @@ async def create_order(order: OrderRequest):
         "qr": "QR-код"
     }
     lines.append(f"\n💳 <b>Способ оплаты:</b> {payment_emoji.get(payment_method, '💵')} {payment_name.get(payment_method, 'Наличными')}")
-    
-    # Добавляем информацию о работе магазина
-    lines.append(f"\n🕐 <b>Режим работы:</b> {SHOP_HOURS}")
-    lines.append(f"🚚 <b>Доставка:</b> {SHOP_DELIVERY}")
 
     text = "\n".join(lines)
 
@@ -345,13 +338,13 @@ async def create_order(order: OrderRequest):
 @dp.message(Command("start"))
 async def start(message: Message):
     # Получаем URL WebApp
-    webapp_url = WEBAPP_URL if WEBAPP_URL else "https://your-app.onrender.com"  # Заглушка, если не установлен
+    webapp_url = WEBAPP_URL if WEBAPP_URL else ""  # URL от localhost.run или другого туннеля
     
     # WebApp кнопки можно использовать только в приватных чатах
     # Проверяем тип чата (в aiogram 3.x это строка: "private", "group", "supergroup", "channel")
     if message.chat.type == "private":
         # В приватном чате показываем WebApp кнопку
-        if webapp_url and webapp_url != "https://your-app.onrender.com":
+        if webapp_url:
             kb = ReplyKeyboardMarkup(
                 keyboard=[[KeyboardButton(text="🛞 Открыть магазин", web_app=WebAppInfo(url=webapp_url))]],
                 resize_keyboard=True
@@ -360,7 +353,10 @@ async def start(message: Message):
         else:
             await message.answer(
                 "⚠️ <b>WebApp URL не настроен</b>\n\n"
-                "Пожалуйста, установите переменную окружения WEBAPP_URL в настройках Render.",
+                "Для работы с localhost.run:\n"
+                "1. Запустите туннель: <code>ssh -R 80:localhost:8000 ssh.localhost.run</code>\n"
+                "2. Установите переменную окружения WEBAPP_URL с полученным URL\n"
+                "3. Или установите WEBAPP_URL вручную в формате: https://xxxxx.localhost.run",
                 parse_mode="HTML"
             )
     else:
@@ -368,7 +364,7 @@ async def start(message: Message):
         await message.answer(
             f"🛞 <b>Магазин шин</b>\n\n"
             f"Для работы с магазином перейдите в приватный чат с ботом и используйте команду /start\n\n"
-            f"Или откройте магазин напрямую: {webapp_url}",
+            f"{'Или откройте магазин напрямую: ' + webapp_url if webapp_url else 'WebApp URL не настроен'}",
             parse_mode="HTML"
         )
 
