@@ -40,7 +40,7 @@ DB_PATH = os.environ.get("DB_PATH") or ("/tmp/db.sqlite3" if _vercel_env else "d
 ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
 # WEBAPP_URL берется из переменной окружения или генерируется автоматически
 # Нормализуем URL (убираем слеш в конце)
-_webapp_url_raw = os.environ.get("WEBAPP_URL", "https://1b2a4dddb764e0.lhr.life/")
+_webapp_url_raw = os.environ.get("WEBAPP_URL", "https://1b2a4dddb764e0.lhr.life/")   
 WEBAPP_URL = _webapp_url_raw.rstrip('/') if _webapp_url_raw else ""
 SHOP_ADDRESS = os.environ.get("SHOP_ADDRESS", "г. Уфа, ул. Трамвайная, д. 13/1")
 SHOP_PHONE = os.environ.get("SHOP_PHONE", "+79177364777")
