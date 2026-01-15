@@ -16,11 +16,6 @@
         "source": "/api/(.*)",
         "destination": "/api/index.py"
       }
-    ],
-    "functions": {
-      "api/**/*.py": {
-        "runtime": "python3.11"
-      }
-    }
+    ]
   }
   
