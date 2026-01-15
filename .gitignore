@@ -41,3 +41,4 @@ data/
 
 # Vercel
 .vercel
+.env*.local
