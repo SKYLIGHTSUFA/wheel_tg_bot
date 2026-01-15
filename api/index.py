@@ -3,7 +3,7 @@ Vercel serverless function для обработки всех API запросо
 """
 import sys
 import os
-import asyncio
+import traceback
 
 # Добавляем корневую директорию в путь для импорта bot.py
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -11,23 +11,25 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 # Устанавливаем переменную окружения для Vercel
 os.environ["VERCEL"] = "1"
 
-from mangum import Mangum
-from bot import app, init_db
-
-# Инициализируем БД при первом импорте
-# Используем asyncio для инициализации
+# Импортируем с обработкой ошибок
 try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-if not loop.is_running():
-    loop.run_until_complete(init_db())
-
-# Создаем handler для Vercel
-handler = Mangum(app, lifespan="off")
-
-def lambda_handler(event, context):
-    """Vercel serverless function handler"""
-    return handler(event, context)
+    from mangum import Mangum
+    from bot import app
+    
+    # Создаем handler для Vercel
+    # Vercel автоматически ищет переменную handler
+    handler = Mangum(app, lifespan="off")
+except Exception as e:
+    # Логируем ошибку при импорте для отладки
+    error_msg = f"Ошибка при импорте: {e}"
+    print(error_msg)
+    traceback.print_exc()
+    
+    # Создаем простой handler для отображения ошибки
+    def handler(event, context):
+        import json
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"error": error_msg, "type": type(e).__name__})
+        }

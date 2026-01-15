@@ -58,6 +58,9 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 app = FastAPI(title="KolesaUfa API")
 
+# Флаг для ленивой инициализации БД
+_db_initialized = False
+
 # --- MIDDLEWARE для туннелей и WebApp ---
 class WebAppMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: StarletteRequest, call_next):
@@ -80,6 +83,19 @@ app.add_middleware(
     allow_headers=["*", "ngrok-skip-browser-warning"],
     expose_headers=["*"],
 )
+
+# --- MIDDLEWARE для инициализации БД ---
+@app.middleware("http")
+async def init_db_middleware(request: Request, call_next):
+    """Ленивая инициализация БД при первом запросе"""
+    global _db_initialized
+    if not _db_initialized:
+        try:
+            await init_db()
+            _db_initialized = True
+        except Exception as e:
+            logger.error(f"Ошибка инициализации БД: {e}")
+    return await call_next(request)
 
 ADMIN_IDS = set()
 
@@ -163,6 +179,15 @@ def get_webapp_url(request: Request = None) -> str:
         return str(request.url).rstrip('/').replace('/index.html', '')
     return ""
 
+
+@app.get("/api/health")
+async def health_check():
+    """Проверка работоспособности API"""
+    return {
+        "status": "ok",
+        "vercel": os.environ.get("VERCEL", "0") == "1",
+        "db_path": DB_PATH
+    }
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
