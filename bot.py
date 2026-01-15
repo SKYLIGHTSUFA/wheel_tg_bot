@@ -33,10 +33,15 @@ logger = logging.getLogger(__name__)
 
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8576138519:AAES_lBttGBQ-cvJ_HvcDjTNzYyoGYBOneE")
-DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
+# На Vercel файловая система read-only, используем /tmp
+# В других окружениях можно использовать обычный путь
+_vercel_env = os.environ.get("VERCEL", "0") == "1"
+DB_PATH = os.environ.get("DB_PATH") or ("/tmp/db.sqlite3" if _vercel_env else "db.sqlite3")
 ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
 # WEBAPP_URL берется из переменной окружения или генерируется автоматически
-WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://1b2a4dddb764e0.lhr.life/")
+# Нормализуем URL (убираем слеш в конце)
+_webapp_url_raw = os.environ.get("WEBAPP_URL", "https://1b2a4dddb764e0.lhr.life/")
+WEBAPP_URL = _webapp_url_raw.rstrip('/') if _webapp_url_raw else ""
 SHOP_ADDRESS = os.environ.get("SHOP_ADDRESS", "г. Уфа, ул. Трамвайная, д. 13/1")
 SHOP_PHONE = os.environ.get("SHOP_PHONE", "+79177364777")
 SHOP_PHONES = {
@@ -330,6 +335,40 @@ async def create_order(order: OrderRequest):
         return {"status": "ok", "message": "Заказ отправлен"}
     except Exception as e:
         print(f"Ошибка отправки в Telegram: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/set-webhook")
+async def set_webhook(webhook_url: str = None):
+    """Устанавливает webhook для Telegram бота (для Vercel)"""
+    try:
+        # Если URL не передан, пытаемся получить из переменной окружения
+        if not webhook_url:
+            vercel_url = os.environ.get("VERCEL_URL")
+            if vercel_url:
+                webhook_url = f"https://{vercel_url}/api/webhook"
+            else:
+                return {"status": "error", "message": "Webhook URL не указан"}
+        
+        # Устанавливаем webhook
+        await bot.set_webhook(webhook_url)
+        return {"status": "ok", "message": f"Webhook установлен: {webhook_url}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/webhook-info")
+async def get_webhook_info():
+    """Получает информацию о текущем webhook"""
+    try:
+        webhook_info = await bot.get_webhook_info()
+        return {
+            "status": "ok",
+            "url": webhook_info.url,
+            "has_custom_certificate": webhook_info.has_custom_certificate,
+            "pending_update_count": webhook_info.pending_update_count
+        }
+    except Exception as e:
         return {"status": "error", "message": str(e)}
 
 

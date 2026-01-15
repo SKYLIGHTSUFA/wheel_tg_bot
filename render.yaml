@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: wheel-tg-bot
+    runtime: python
+    plan: free
+    pythonVersion: "3.11"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: WEBAPP_URL
+        sync: false
+      - key: SHOP_ADDRESS
+        value: "г. Уфа, ул. Трамвайная, д. 13/1"
+      - key: SHOP_PHONE
+        value: "+79177364777"
+      - key: DB_PATH
+        value: "db.sqlite3"
+      # PORT устанавливается автоматически Render.com, не нужно указывать
