@@ -36,7 +36,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8576138519:AAES_lBttGBQ-cvJ_HvcDjTNzYyo
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
 ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
 # WEBAPP_URL берется из переменной окружения или генерируется автоматически
-WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://1b2a4dddb764e0.lhr.life/")
+WEBAPP_URL = os.environ.get("WEBAPP_URL", " https://5bdd4cad98b034.lhr.life")
 SHOP_ADDRESS = os.environ.get("SHOP_ADDRESS", "г. Уфа, ул. Трамвайная, д. 13/1")
 SHOP_PHONE = os.environ.get("SHOP_PHONE", "+79177364777")
 SHOP_PHONES = {
