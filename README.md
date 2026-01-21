@@ -52,7 +52,11 @@ export TUNA_TOKEN="tt_dzlsgcyntgvbpv0uregz8jw9d88rhxq9"
 export BOT_TOKEN="8576138519:AAES_lBttGBQ-cvJ_HvcDjTNzYyoGYBOneE"
 export USE_WEBHOOK="true"  # Для использования webhook через Tuna
 export TUNA_LOCATION="ru"  # Опционально: регион (ru, nl, us и т.д.)
+<<<<<<< HEAD
 export WEBAPP_URL='ht.tps://vsnsgb-185-229-221-157.ru.tuna.am'
+=======
+export WEBAPP_URL='https://wheel.ru.tuna.am'
+>>>>>>> 8526864 ([ADD] tune)
 curl -X POST "http://localhost:8000/api/set-webhook?webhook_url=https://wheel.ru.tuna.am/api/webhook"
 
 ```
