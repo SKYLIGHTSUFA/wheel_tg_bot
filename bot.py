@@ -33,10 +33,14 @@ logger = logging.getLogger(__name__)
 
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8576138519:AAES_lBttGBQ-cvJ_HvcDjTNzYyoGYBOneE")
+# Путь к базе данных (локально)
 DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
 ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
-# WEBAPP_URL берется из переменной окружения или генерируется автоматически
-WEBAPP_URL = os.environ.get("WEBAPP_URL", " https://5bdd4cad98b034.lhr.life")
+# WEBAPP_URL для Tuna туннеля
+# Получается из переменной окружения или устанавливается вручную
+# После запуска `tuna http 7070` вы получите URL вида: https://xxxxx.tuna.am
+_webapp_url_raw = os.environ.get("WEBAPP_URL", "https://wheel.ru.tuna.am")
+WEBAPP_URL = _webapp_url_raw.rstrip('/') if _webapp_url_raw else ""
 SHOP_ADDRESS = os.environ.get("SHOP_ADDRESS", "г. Уфа, ул. Трамвайная, д. 13/1")
 SHOP_PHONE = os.environ.get("SHOP_PHONE", "+79177364777")
 SHOP_PHONES = {
@@ -45,13 +49,17 @@ SHOP_PHONES = {
     "consultation": "+79371512083"  # Консультация
 }
 SHOP_HOURS = "Работаем без выходных с 09:00 до 21:00"
-SHOP_DELIVERY = "Отправка транспортной компанией" 
+SHOP_DELIVERY = "Отправка транспортной компанией"
 
 # Создаем бота глобально, чтобы к нему был доступ из API
 bot = Bot(BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 app = FastAPI(title="KolesaUfa API")
+
+# Флаг для ленивой инициализации БД
+_db_initialized = False
+
 
 # --- MIDDLEWARE для туннелей и WebApp ---
 class WebAppMiddleware(BaseHTTPMiddleware):
@@ -63,6 +71,7 @@ class WebAppMiddleware(BaseHTTPMiddleware):
         # Заголовки для различных туннелей (ngrok, cloudflare и т.д.)
         response.headers["ngrok-skip-browser-warning"] = "true"
         return response
+
 
 app.add_middleware(WebAppMiddleware)
 
@@ -76,7 +85,23 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+
+# --- MIDDLEWARE для инициализации БД ---
+@app.middleware("http")
+async def init_db_middleware(request: Request, call_next):
+    """Ленивая инициализация БД при первом запросе"""
+    global _db_initialized
+    if not _db_initialized:
+        try:
+            await init_db()
+            _db_initialized = True
+        except Exception as e:
+            logger.error(f"Ошибка инициализации БД: {e}")
+    return await call_next(request)
+
+
 ADMIN_IDS = set()
+
 
 # --- FSM STATES ---
 class AddProduct(StatesGroup):
@@ -130,8 +155,15 @@ async def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS admins (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
         await db.commit()
-        
+
         # Добавляем колонку payment_method, если её нет (для существующих БД)
         try:
             cur = await db.execute("PRAGMA table_info(orders)")
@@ -143,9 +175,28 @@ async def init_db():
         except Exception as e:
             logger.warning(f"Ошибка при миграции БД (возможно, колонка уже существует): {e}")
 
+        # Загружаем админов из БД в память
+        await load_admins_from_db()
+
+
+async def load_admins_from_db():
+    """Загружает список админов из базы данных"""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cur = await db.execute("SELECT user_id FROM admins")
+            rows = await cur.fetchall()
+            ADMIN_IDS.clear()
+            for row in rows:
+                ADMIN_IDS.add(row[0])
+            logger.info(f"Загружено {len(ADMIN_IDS)} администраторов из БД")
+    except Exception as e:
+        logger.error(f"Ошибка загрузки админов из БД: {e}")
+
 
 def is_admin(user_id: Optional[int]) -> bool:
-    return user_id is not None and user_id in ADMIN_IDS
+    result = user_id is not None and user_id in ADMIN_IDS
+    logger.debug(f"Проверка прав админа для user_id={user_id}: {result}, ADMIN_IDS={ADMIN_IDS}")
+    return result
 
 
 # --- API ENDPOINTS ---
@@ -159,6 +210,16 @@ def get_webapp_url(request: Request = None) -> str:
     return ""
 
 
+@app.get("/api/health")
+async def health_check():
+    """Проверка работоспособности API"""
+    return {
+        "status": "ok",
+        "db_path": DB_PATH,
+        "webapp_url": WEBAPP_URL
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Возвращает index.html для Telegram WebApp"""
@@ -168,7 +229,7 @@ async def root(request: Request):
             html_content = f.read()
             # Заменяем пустой API_URL на текущий домен
             current_url = str(request.url).rstrip('/')
-            html_content = html_content.replace('const API_URL = window.location.origin || "";', 
+            html_content = html_content.replace('const API_URL = window.location.origin || "";',
                                                 f'const API_URL = "{current_url}";')
             # Добавляем заголовки для WebApp
             response = HTMLResponse(content=html_content)
@@ -188,7 +249,7 @@ async def index_html(request: Request):
             html_content = f.read()
             # Заменяем пустой API_URL на текущий домен
             current_url = str(request.url).rstrip('/').replace('/index.html', '')
-            html_content = html_content.replace('const API_URL = window.location.origin || "";', 
+            html_content = html_content.replace('const API_URL = window.location.origin || "";',
                                                 f'const API_URL = "{current_url}";')
             # Добавляем заголовки для WebApp
             response = HTMLResponse(content=html_content)
@@ -239,16 +300,16 @@ async def upload_image(file: UploadFile = File(...)):
     # Создаем папку для изображений, если её нет
     upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
     os.makedirs(upload_dir, exist_ok=True)
-    
+
     # Генерируем уникальное имя файла
     file_ext = os.path.splitext(file.filename)[1] if file.filename else ".jpg"
     file_name = f"{uuid.uuid4()}{file_ext}"
     file_path = os.path.join(upload_dir, file_name)
-    
+
     # Сохраняем файл
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    
+
     # Возвращаем относительный путь для использования в API
     return {"status": "ok", "image_path": f"/api/uploads/{file_name}"}
 
@@ -279,8 +340,6 @@ async def get_payment_config():
     }
 
 
-
-
 # НОВЫЙ МЕТОД: Принимает заказ напрямую через HTTP
 @app.post("/api/order")
 async def create_order(order: OrderRequest):
@@ -307,7 +366,7 @@ async def create_order(order: OrderRequest):
         lines.append(f"• {item.name} (x{item.qty}) — {item.price * item.qty} ₽")
 
     lines.append(f"\n💰 <b>Итого: {order.total} ₽</b>")
-    
+
     # Добавляем информацию о способе оплаты
     payment_method = order.payment_method or "cash"
     payment_emoji = {
@@ -320,7 +379,8 @@ async def create_order(order: OrderRequest):
         "sbp": "СБП (Система быстрых платежей)",
         "qr": "QR-код"
     }
-    lines.append(f"\n💳 <b>Способ оплаты:</b> {payment_emoji.get(payment_method, '💵')} {payment_name.get(payment_method, 'Наличными')}")
+    lines.append(
+        f"\n💳 <b>Способ оплаты:</b> {payment_emoji.get(payment_method, '💵')} {payment_name.get(payment_method, 'Наличными')}")
 
     text = "\n".join(lines)
 
@@ -333,13 +393,93 @@ async def create_order(order: OrderRequest):
         return {"status": "error", "message": str(e)}
 
 
+@app.post("/api/set-webhook")
+async def set_webhook(webhook_url: str = None):
+    """Устанавливает webhook для Telegram бота (для Tuna)"""
+    try:
+        # Если URL не передан, пытаемся использовать WEBAPP_URL
+        if not webhook_url:
+            if WEBAPP_URL:
+                webhook_url = f"{WEBAPP_URL}/api/webhook"
+            else:
+                return {"status": "error",
+                        "message": "Webhook URL не указан. Установите WEBAPP_URL или передайте webhook_url"}
+
+        # Устанавливаем webhook и удаляем pending updates
+        await bot.set_webhook(webhook_url, drop_pending_updates=True)
+        logger.info(f"✅ Webhook установлен: {webhook_url}")
+        return {"status": "ok", "message": f"Webhook установлен: {webhook_url}"}
+    except Exception as e:
+        logger.error(f"❌ Ошибка установки webhook: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/webhook-info")
+async def get_webhook_info():
+    """Получает информацию о текущем webhook"""
+    try:
+        webhook_info = await bot.get_webhook_info()
+        return {
+            "status": "ok",
+            "url": webhook_info.url,
+            "has_custom_certificate": webhook_info.has_custom_certificate,
+            "pending_update_count": webhook_info.pending_update_count
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/webhook")
+async def webhook_handler(request: Request):
+    """Обработчик webhook от Telegram"""
+    try:
+        # Получаем тело запроса
+        body = await request.body()
+        logger.info(f"📥 Получен запрос на /api/webhook, размер: {len(body)} байт")
+
+        # Парсим JSON
+        try:
+            update_data = await request.json()
+        except Exception as json_error:
+            # Если не JSON, пытаемся прочитать как строку
+            logger.error(f"Ошибка парсинга JSON: {json_error}, body: {body[:500]}")
+            return JSONResponse(
+                status_code=200,
+                content={"status": "error", "message": "Invalid JSON"}
+            )
+
+        logger.info(
+            f"📨 Обновление получено: update_id={update_data.get('update_id', 'unknown')}, type={list(update_data.keys())[1] if len(update_data) > 1 else 'unknown'}")
+
+        from aiogram.types import Update
+        update = Update(**update_data)
+
+        # Обрабатываем обновление асинхронно, чтобы быстро вернуть ответ Telegram
+        # Telegram требует ответ в течение 60 секунд
+        asyncio.create_task(dp.feed_update(bot, update))
+        logger.info(f"🔄 Обновление {update.update_id} поставлено в очередь обработки")
+
+        # Сразу возвращаем успешный ответ Telegram
+        return JSONResponse(status_code=200, content={"status": "ok"})
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки webhook: {e}", exc_info=True)
+        import traceback
+        logger.error(traceback.format_exc())
+        # Всегда возвращаем 200, чтобы Telegram не считал запрос неудачным
+        return JSONResponse(
+            status_code=200,
+            content={"status": "error", "message": str(e)}
+        )
+
+
 # --- BOT HANDLERS ---
 
 @dp.message(Command("start"))
 async def start(message: Message):
+    logger.info(f"🎯 Получена команда /start от пользователя {message.from_user.id} (@{message.from_user.username})")
     # Получаем URL WebApp
-    webapp_url = WEBAPP_URL if WEBAPP_URL else ""  # URL от localhost.run или другого туннеля
-    
+    webapp_url = WEBAPP_URL if WEBAPP_URL else ""  # URL от Tuna туннеля
+
     # WebApp кнопки можно использовать только в приватных чатах
     # Проверяем тип чата (в aiogram 3.x это строка: "private", "group", "supergroup", "channel")
     if message.chat.type == "private":
@@ -353,10 +493,12 @@ async def start(message: Message):
         else:
             await message.answer(
                 "⚠️ <b>WebApp URL не настроен</b>\n\n"
-                "Для работы с localhost.run:\n"
-                "1. Запустите туннель: <code>ssh -R 80:localhost:8000 ssh.localhost.run</code>\n"
-                "2. Установите переменную окружения WEBAPP_URL с полученным URL\n"
-                "3. Или установите WEBAPP_URL вручную в формате: https://xxxxx.localhost.run",
+                "Для работы с Tuna туннелем:\n"
+                "1. Установите Tuna CLI: <code>curl -sSL https://tuna.am/install.sh | bash</code>\n"
+                "2. Запустите туннель: <code>tuna http 8000</code>\n"
+                "3. Установите переменную окружения WEBAPP_URL с полученным URL\n"
+                "4. Установите USE_WEBHOOK=true для использования webhook\n"
+                "5. Или установите WEBAPP_URL вручную в формате: https://xxxxx.tuna.am",
                 parse_mode="HTML"
             )
     else:
@@ -371,27 +513,105 @@ async def start(message: Message):
 
 @dp.message(Command("setadmin"))
 async def cmd_setadmin(message: Message):
-    ADMIN_IDS.add(message.from_user.id)
-    await message.answer(f"Готово. Добавлен админ: {message.from_user.id}")
+    """Добавляет пользователя в список администраторов"""
+    user_id = message.from_user.id
+    username = message.from_user.username or "без username"
+
+    try:
+        # Добавляем в память
+        ADMIN_IDS.add(user_id)
+
+        # Сохраняем в БД
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO admins (user_id, username) VALUES (?, ?)",
+                (user_id, username)
+            )
+            await db.commit()
+
+        logger.info(f"✅ Добавлен администратор: user_id={user_id}, username=@{username}")
+        await message.answer(
+            f"✅ <b>Готово!</b>\n\n"
+            f"Добавлен администратор:\n"
+            f"ID: <code>{user_id}</code>\n"
+            f"Username: @{username}\n\n"
+            f"Теперь вы можете использовать административные команды.",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка добавления админа: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка при добавлении администратора: {e}")
+
+
+@dp.message(Command("webhook"))
+async def cmd_webhook(message: Message):
+    """Управление webhook (только для админов)"""
+    if not is_admin(message.from_user.id):
+        return await message.answer("❌ У вас нет прав администратора")
+
+    try:
+        webhook_info = await bot.get_webhook_info()
+        if webhook_info.url and webhook_info.url != "":
+            await message.answer(
+                f"📡 <b>Webhook активен</b>\n\n"
+                f"URL: <code>{webhook_info.url}</code>\n"
+                f"Pending updates: {webhook_info.pending_update_count}\n\n"
+                f"Используйте /deletewebhook для удаления",
+                parse_mode="HTML"
+            )
+        else:
+            await message.answer(
+                "ℹ️ <b>Webhook не установлен</b>\n\n"
+                "Используйте polling для получения обновлений.\n"
+                "Для установки webhook используйте API endpoint /api/set-webhook",
+                parse_mode="HTML"
+            )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command("deletewebhook"))
+async def cmd_delete_webhook(message: Message):
+    """Удаляет webhook (только для админов)"""
+    if not is_admin(message.from_user.id):
+        return await message.answer("❌ У вас нет прав администратора")
+
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await message.answer(
+            "✅ <b>Webhook удален</b>\n\n"
+            "Теперь можно использовать polling. Перезапустите приложение.",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при удалении webhook: {e}")
 
 
 @dp.message(Command("products"))
 async def cmd_products(message: Message):
     """Показывает список всех товаров с возможностью удаления (только для админов)"""
-    if not is_admin(message.from_user.id):
-        return await message.answer("❌ У вас нет прав администратора")
-    
+    user_id = message.from_user.id
+    logger.info(f"Команда /products от user_id={user_id}, is_admin={is_admin(user_id)}, ADMIN_IDS={ADMIN_IDS}")
+
+    if not is_admin(user_id):
+        await message.answer(
+            "❌ <b>У вас нет прав администратора</b>\n\n"
+            "Используйте команду /setadmin для получения прав администратора.",
+            parse_mode="HTML"
+        )
+        return
+
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM products ORDER BY id DESC LIMIT 20")
         rows = await cur.fetchall()
-    
+
     if not rows:
         return await message.answer("📦 Товаров пока нет. Используйте /add для добавления.")
-    
+
     text_lines = ["📦 <b>Список товаров:</b>\n"]
     buttons = []
-    
+
     for r in rows:
         status = "✅" if r["active"] else "❌"
         text_lines.append(f"{status} <b>{r['name']}</b> — {r['price']} ₽ (ID: {r['id']})")
@@ -399,22 +619,25 @@ async def cmd_products(message: Message):
             text=f"{'❌ Удалить' if r['active'] else '✅ Восстановить'} {r['name']}",
             callback_data=f"toggle_product_{r['id']}"
         )])
-    
+
     text = "\n".join(text_lines)
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    
+
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
 
 @dp.callback_query(F.data.startswith("toggle_product_"))
 async def toggle_product(callback: CallbackQuery):
     """Переключает статус товара (активный/неактивный)"""
-    if not is_admin(callback.from_user.id):
+    user_id = callback.from_user.id
+    logger.info(f"Callback toggle_product от user_id={user_id}, is_admin={is_admin(user_id)}, ADMIN_IDS={ADMIN_IDS}")
+
+    if not is_admin(user_id):
         await callback.answer("❌ У вас нет прав администратора", show_alert=True)
         return
-    
+
     product_id = int(callback.data.replace("toggle_product_", ""))
-    
+
     async with aiosqlite.connect(DB_PATH) as db:
         # Получаем текущий статус
         cur = await db.execute("SELECT active FROM products WHERE id=?", (product_id,))
@@ -422,14 +645,14 @@ async def toggle_product(callback: CallbackQuery):
         if not row:
             await callback.answer("❌ Товар не найден", show_alert=True)
             return
-        
+
         new_status = 0 if row[0] else 1
         await db.execute("UPDATE products SET active=? WHERE id=?", (new_status, product_id))
         await db.commit()
-    
+
     action = "удален" if new_status == 0 else "восстановлен"
     await callback.answer(f"✅ Товар {action}")
-    
+
     # Обновляем сообщение
     await cmd_products(callback.message)
 
@@ -440,7 +663,7 @@ async def cmd_cancel(message: Message, state: FSMContext):
     current_state = await state.get_state()
     if current_state is None:
         return await message.answer("❌ Нет активных операций для отмены")
-    
+
     await state.clear()
     await message.answer("✅ Операция отменена")
 
@@ -466,7 +689,7 @@ async def cmd_add(message: Message, state: FSMContext):
     """Начинает процесс добавления товара"""
     if not is_admin(message.from_user.id):
         return await message.answer("❌ У вас нет прав администратора")
-    
+
     await state.set_state(AddProduct.waiting_name)
     await message.answer(
         "➕ <b>Добавление нового товара</b>\n\n"
@@ -482,11 +705,11 @@ async def process_name(message: Message, state: FSMContext):
     if message.text and message.text.strip().lower() == "/cancel":
         await state.clear()
         return await message.answer("✅ Операция отменена")
-    
+
     name = message.text.strip()
     if not name:
         return await message.answer("❌ Название не может быть пустым. Попробуйте снова или /cancel для отмены:")
-    
+
     await state.update_data(name=name)
     await state.set_state(AddProduct.waiting_price)
     await message.answer(
@@ -504,14 +727,15 @@ async def process_price(message: Message, state: FSMContext):
     if message.text and message.text.strip().lower() == "/cancel":
         await state.clear()
         return await message.answer("✅ Операция отменена")
-    
+
     try:
         price = int(message.text.strip())
         if price <= 0:
-            return await message.answer("❌ Цена должна быть положительным числом. Попробуйте снова или /cancel для отмены:")
+            return await message.answer(
+                "❌ Цена должна быть положительным числом. Попробуйте снова или /cancel для отмены:")
     except ValueError:
         return await message.answer("❌ Неверный формат цены. Введите только число или /cancel для отмены:")
-    
+
     await state.update_data(price=price)
     await state.set_state(AddProduct.waiting_image)
     await message.answer(
@@ -529,27 +753,27 @@ async def process_image(message: Message, state: FSMContext):
     if message.text and message.text.strip().lower() == "/cancel":
         await state.clear()
         return await message.answer("✅ Операция отменена")
-    
+
     image = "🛞"  # Значение по умолчанию
-    
+
     # Если отправлено фото
     if message.photo:
         # Берем самое большое фото
         photo = message.photo[-1]
         file_info = await bot.get_file(photo.file_id)
         file_path = file_info.file_path
-        
+
         # Сохраняем фото локально
         upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
         os.makedirs(upload_dir, exist_ok=True)
-        
+
         file_ext = os.path.splitext(file_path)[1] or ".jpg"
         file_name = f"{uuid.uuid4()}{file_ext}"
         local_path = os.path.join(upload_dir, file_name)
-        
+
         # Скачиваем файл
         await bot.download_file(file_path, local_path)
-        
+
         # Сохраняем путь к изображению
         image = f"/api/uploads/{file_name}"
         await state.update_data(image=image)
@@ -570,7 +794,7 @@ async def process_image(message: Message, state: FSMContext):
         else:
             # Иначе используем как эмодзи
             image = text[:1] if len(text) > 0 else "🛞"
-        
+
         await state.update_data(image=image)
         await state.set_state(AddProduct.waiting_description)
         await message.answer(
@@ -584,10 +808,10 @@ async def process_image(message: Message, state: FSMContext):
 async def process_image_emoji(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает выбор эмодзи через кнопку"""
     image = callback.data.replace("img_", "")
-    
+
     if image == "skip":
         image = "🛞"  # Значение по умолчанию
-    
+
     await state.update_data(image=image)
     await state.set_state(AddProduct.waiting_description)
     await callback.message.edit_text(
@@ -605,11 +829,11 @@ async def process_description(message: Message, state: FSMContext):
     if message.text and message.text.strip().lower() == "/cancel":
         await state.clear()
         return await message.answer("✅ Операция отменена")
-    
+
     description = message.text.strip()
     if description == "-":
         description = ""
-    
+
     await state.update_data(description=description)
     await state.set_state(AddProduct.waiting_specs)
     await message.answer(
@@ -628,19 +852,19 @@ async def process_specs(message: Message, state: FSMContext):
     if message.text and message.text.strip().lower() == "/cancel":
         await state.clear()
         return await message.answer("✅ Операция отменена    ")
-    
+
     specs_text = message.text.strip()
-    
+
     if specs_text == "-":
         specs = []
     else:
         specs = [s.strip() for s in specs_text.split(",") if s.strip()]
-    
+
     await state.update_data(specs=specs)
     await state.set_state(AddProduct.confirming)
-    
+
     data = await state.get_data()
-    
+
     preview = (
         "📋 <b>Превью товара:</b>\n\n"
         f"📝 <b>Название:</b> {data['name']}\n"
@@ -650,14 +874,14 @@ async def process_specs(message: Message, state: FSMContext):
         f"🏷️ <b>Характеристики:</b> {', '.join(specs) if specs else 'не указано'}\n\n"
         "✅ Сохранить товар?"
     )
-    
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✅ Да, сохранить", callback_data="confirm_yes"),
             InlineKeyboardButton(text="❌ Отменить", callback_data="confirm_no")
         ]
     ])
-    
+
     await message.answer(preview, reply_markup=keyboard, parse_mode="HTML")
 
 
@@ -667,14 +891,14 @@ async def confirm_add(callback: CallbackQuery, state: FSMContext):
     try:
         data = await state.get_data()
         logger.info(f"Получены данные для сохранения: {data}")
-        
+
         # Проверяем наличие необходимых данных
         if not data or 'name' not in data or 'price' not in data:
             logger.warning(f"Недостаточно данных для сохранения: {data}")
             await callback.answer("❌ Ошибка: данные не найдены. Начните добавление товара заново.", show_alert=True)
             await state.clear()
             return
-        
+
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
                 "INSERT INTO products(name, price, image, description, specs) VALUES(?,?,?,?,?)",
@@ -688,7 +912,7 @@ async def confirm_add(callback: CallbackQuery, state: FSMContext):
             )
             await db.commit()
             logger.info(f"Товар сохранен в БД: {data['name']}")
-        
+
         await callback.answer("Товар добавлен!")
         await callback.message.edit_text(
             f"✅ <b>Товар успешно добавлен!</b>\n\n"
@@ -718,7 +942,9 @@ async def cancel_add(callback: CallbackQuery, state: FSMContext):
 # --- RUNNERS ---
 
 async def run_api():
-    config = uvicorn.Config(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), log_level="info")
+    port = int(os.environ.get("PORT", "7070"))
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    logger.info(f"🌐 API сервер запущен на порту {port}")
     server = uvicorn.Server(config)
     await server.serve()
 
@@ -726,26 +952,48 @@ async def run_api():
 async def run_bot():
     """Запускает бота с правильной обработкой webhook и ошибок"""
     try:
-        # Отменяем webhook, если он был установлен (важно для предотвращения конфликтов)
-        logger.info("Проверяем и отменяем webhook (если был установлен)...")
-        try:
-            await bot.delete_webhook(drop_pending_updates=True)
-            logger.info("Webhook успешно отменен")
-            # Небольшая задержка для завершения всех запросов
-            await asyncio.sleep(1)
-        except Exception as webhook_error:
-            logger.warning(f"Ошибка при отмене webhook (возможно, его не было): {webhook_error}")
-        
-        logger.info("Запускаем polling...")
-        
-        # Запускаем polling с правильными параметрами
-        await dp.start_polling(
-            bot,
-            allowed_updates=dp.resolve_used_update_types(),
-            drop_pending_updates=True  # Игнорируем старые обновления при запуске
-        )
+        # Проверяем текущий статус webhook
+        webhook_info = await bot.get_webhook_info()
+        has_active_webhook = webhook_info.url and webhook_info.url != ""
+
+        # Проверяем, нужно ли использовать webhook или polling
+        use_webhook = os.environ.get("USE_WEBHOOK", "false").lower() == "true"
+
+        # Если USE_WEBHOOK=true и есть WEBAPP_URL, используем webhook
+        if use_webhook and WEBAPP_URL:
+            webhook_url = f"{WEBAPP_URL}/api/webhook"
+            logger.info(f"Устанавливаем webhook: {webhook_url}")
+            await bot.set_webhook(webhook_url, drop_pending_updates=True)
+            logger.info("✅ Webhook установлен. Бот работает через Tuna туннель.")
+            logger.info("📡 Обновления будут приходить через /api/webhook endpoint")
+            # При использовании webhook бот обрабатывается через API endpoint
+            # Не запускаем polling, просто ждем
+            while True:
+                await asyncio.sleep(3600)  # Ждем час, чтобы не завершать задачу
+        else:
+            # Используем polling (по умолчанию)
+            if has_active_webhook:
+                logger.warning(f"⚠️  Обнаружен активный webhook: {webhook_info.url}")
+                logger.info("Удаляем webhook для использования polling...")
+
+            # ВСЕГДА отменяем webhook перед запуском polling
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+                logger.info("✅ Webhook удален. Запускаем polling...")
+                await asyncio.sleep(2)  # Даем время для завершения операций
+            except Exception as webhook_error:
+                logger.warning(f"⚠️  Ошибка при удалении webhook: {webhook_error}")
+                # Пытаемся продолжить, возможно webhook уже удален
+
+            # Запускаем polling
+            logger.info("🔄 Запуск polling...")
+            await dp.start_polling(
+                bot,
+                allowed_updates=dp.resolve_used_update_types(),
+                drop_pending_updates=True
+            )
     except Exception as e:
-        logger.error(f"Ошибка при запуске бота: {e}", exc_info=True)
+        logger.error(f"❌ Ошибка при запуске бота: {e}", exc_info=True)
         raise
 
 
@@ -762,13 +1010,14 @@ async def main():
         logger.info("Инициализация базы данных...")
         await init_db()
         logger.info("База данных инициализирована")
-        
+        logger.info(f"Загружено администраторов: {len(ADMIN_IDS)} - {ADMIN_IDS}")
+
         logger.info("Запуск API сервера и бота...")
-        
+
         # Создаем задачи для параллельного запуска
         api_task = asyncio.create_task(run_api())
         bot_task = asyncio.create_task(run_bot())
-        
+
         # Запускаем обе задачи параллельно
         # Если одна из них упадет, другая продолжит работать
         results = await asyncio.gather(
@@ -776,7 +1025,7 @@ async def main():
             bot_task,
             return_exceptions=True
         )
-        
+
         # Проверяем результаты
         for i, result in enumerate(results):
             if isinstance(result, Exception):
@@ -785,7 +1034,7 @@ async def main():
             else:
                 task_name = "API" if i == 0 else "Bot"
                 logger.info(f"Задача {task_name} завершена")
-                
+
     except KeyboardInterrupt:
         logger.info("Получен KeyboardInterrupt. Завершение работы...")
     except Exception as e:
