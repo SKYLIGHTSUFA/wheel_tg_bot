@@ -33,14 +33,13 @@ logger = logging.getLogger(__name__)
 
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8576138519:AAES_lBttGBQ-cvJ_HvcDjTNzYyoGYBOneE")
-# На Vercel файловая система read-only, используем /tmp
-# В других окружениях можно использовать обычный путь
-_vercel_env = os.environ.get("VERCEL", "0") == "1"
-DB_PATH = os.environ.get("DB_PATH") or ("/tmp/db.sqlite3" if _vercel_env else "db.sqlite3")
+# Путь к базе данных (локально)
+DB_PATH = os.environ.get("DB_PATH", "db.sqlite3")
 ORDERS_CHAT = "@KolesaUfa02"  # Куда будут приходить уведомления
-# WEBAPP_URL берется из переменной окружения или генерируется автоматически
-# Нормализуем URL (убираем слеш в конце)
-_webapp_url_raw = os.environ.get("WEBAPP_URL", "https://1b2a4dddb764e0.lhr.life/")   
+# WEBAPP_URL для Tuna туннеля
+# Получается из переменной окружения или устанавливается вручную
+# После запуска `tuna http 7070` вы получите URL вида: https://xxxxx.tuna.am
+_webapp_url_raw = os.environ.get("WEBAPP_URL", "https://mo5gx7-94-41-87-102.ru.tuna.am")
 WEBAPP_URL = _webapp_url_raw.rstrip('/') if _webapp_url_raw else ""
 SHOP_ADDRESS = os.environ.get("SHOP_ADDRESS", "г. Уфа, ул. Трамвайная, д. 13/1")
 SHOP_PHONE = os.environ.get("SHOP_PHONE", "+79177364777")
@@ -151,6 +150,13 @@ async def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS admins (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
         await db.commit()
         
         # Добавляем колонку payment_method, если её нет (для существующих БД)
@@ -163,10 +169,29 @@ async def init_db():
                 await db.commit()
         except Exception as e:
             logger.warning(f"Ошибка при миграции БД (возможно, колонка уже существует): {e}")
+        
+        # Загружаем админов из БД в память
+        await load_admins_from_db()
+
+
+async def load_admins_from_db():
+    """Загружает список админов из базы данных"""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cur = await db.execute("SELECT user_id FROM admins")
+            rows = await cur.fetchall()
+            ADMIN_IDS.clear()
+            for row in rows:
+                ADMIN_IDS.add(row[0])
+            logger.info(f"Загружено {len(ADMIN_IDS)} администраторов из БД")
+    except Exception as e:
+        logger.error(f"Ошибка загрузки админов из БД: {e}")
 
 
 def is_admin(user_id: Optional[int]) -> bool:
-    return user_id is not None and user_id in ADMIN_IDS
+    result = user_id is not None and user_id in ADMIN_IDS
+    logger.debug(f"Проверка прав админа для user_id={user_id}: {result}, ADMIN_IDS={ADMIN_IDS}")
+    return result
 
 
 # --- API ENDPOINTS ---
@@ -185,8 +210,8 @@ async def health_check():
     """Проверка работоспособности API"""
     return {
         "status": "ok",
-        "vercel": os.environ.get("VERCEL", "0") == "1",
-        "db_path": DB_PATH
+        "db_path": DB_PATH,
+        "webapp_url": WEBAPP_URL
     }
 
 @app.get("/", response_class=HTMLResponse)
@@ -365,20 +390,21 @@ async def create_order(order: OrderRequest):
 
 @app.post("/api/set-webhook")
 async def set_webhook(webhook_url: str = None):
-    """Устанавливает webhook для Telegram бота (для Vercel)"""
+    """Устанавливает webhook для Telegram бота (для Tuna)"""
     try:
-        # Если URL не передан, пытаемся получить из переменной окружения
+        # Если URL не передан, пытаемся использовать WEBAPP_URL
         if not webhook_url:
-            vercel_url = os.environ.get("VERCEL_URL")
-            if vercel_url:
-                webhook_url = f"https://{vercel_url}/api/webhook"
+            if WEBAPP_URL:
+                webhook_url = f"{WEBAPP_URL}/api/webhook"
             else:
-                return {"status": "error", "message": "Webhook URL не указан"}
+                return {"status": "error", "message": "Webhook URL не указан. Установите WEBAPP_URL или передайте webhook_url"}
         
-        # Устанавливаем webhook
-        await bot.set_webhook(webhook_url)
+        # Устанавливаем webhook и удаляем pending updates
+        await bot.set_webhook(webhook_url, drop_pending_updates=True)
+        logger.info(f"✅ Webhook установлен: {webhook_url}")
         return {"status": "ok", "message": f"Webhook установлен: {webhook_url}"}
     except Exception as e:
+        logger.error(f"❌ Ошибка установки webhook: {e}")
         return {"status": "error", "message": str(e)}
 
 
@@ -397,12 +423,55 @@ async def get_webhook_info():
         return {"status": "error", "message": str(e)}
 
 
+@app.post("/api/webhook")
+async def webhook_handler(request: Request):
+    """Обработчик webhook от Telegram"""
+    try:
+        # Получаем тело запроса
+        body = await request.body()
+        logger.info(f"📥 Получен запрос на /api/webhook, размер: {len(body)} байт")
+        
+        # Парсим JSON
+        try:
+            update_data = await request.json()
+        except Exception as json_error:
+            # Если не JSON, пытаемся прочитать как строку
+            logger.error(f"Ошибка парсинга JSON: {json_error}, body: {body[:500]}")
+            return JSONResponse(
+                status_code=200,
+                content={"status": "error", "message": "Invalid JSON"}
+            )
+        
+        logger.info(f"📨 Обновление получено: update_id={update_data.get('update_id', 'unknown')}, type={list(update_data.keys())[1] if len(update_data) > 1 else 'unknown'}")
+        
+        from aiogram.types import Update
+        update = Update(**update_data)
+        
+        # Обрабатываем обновление асинхронно, чтобы быстро вернуть ответ Telegram
+        # Telegram требует ответ в течение 60 секунд
+        asyncio.create_task(dp.feed_update(bot, update))
+        logger.info(f"🔄 Обновление {update.update_id} поставлено в очередь обработки")
+        
+        # Сразу возвращаем успешный ответ Telegram
+        return JSONResponse(status_code=200, content={"status": "ok"})
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки webhook: {e}", exc_info=True)
+        import traceback
+        logger.error(traceback.format_exc())
+        # Всегда возвращаем 200, чтобы Telegram не считал запрос неудачным
+        return JSONResponse(
+            status_code=200,
+            content={"status": "error", "message": str(e)}
+        )
+
+
 # --- BOT HANDLERS ---
 
 @dp.message(Command("start"))
 async def start(message: Message):
+    logger.info(f"🎯 Получена команда /start от пользователя {message.from_user.id} (@{message.from_user.username})")
     # Получаем URL WebApp
-    webapp_url = WEBAPP_URL if WEBAPP_URL else ""  # URL от localhost.run или другого туннеля
+    webapp_url = WEBAPP_URL if WEBAPP_URL else ""  # URL от Tuna туннеля
     
     # WebApp кнопки можно использовать только в приватных чатах
     # Проверяем тип чата (в aiogram 3.x это строка: "private", "group", "supergroup", "channel")
@@ -417,10 +486,12 @@ async def start(message: Message):
         else:
             await message.answer(
                 "⚠️ <b>WebApp URL не настроен</b>\n\n"
-                "Для работы с localhost.run:\n"
-                "1. Запустите туннель: <code>ssh -R 80:localhost:8000 ssh.localhost.run</code>\n"
-                "2. Установите переменную окружения WEBAPP_URL с полученным URL\n"
-                "3. Или установите WEBAPP_URL вручную в формате: https://xxxxx.localhost.run",
+                "Для работы с Tuna туннелем:\n"
+                "1. Установите Tuna CLI: <code>curl -sSL https://tuna.am/install.sh | bash</code>\n"
+                "2. Запустите туннель: <code>tuna http 8000</code>\n"
+                "3. Установите переменную окружения WEBAPP_URL с полученным URL\n"
+                "4. Установите USE_WEBHOOK=true для использования webhook\n"
+                "5. Или установите WEBAPP_URL вручную в формате: https://xxxxx.tuna.am",
                 parse_mode="HTML"
             )
     else:
@@ -435,15 +506,93 @@ async def start(message: Message):
 
 @dp.message(Command("setadmin"))
 async def cmd_setadmin(message: Message):
-    ADMIN_IDS.add(message.from_user.id)
-    await message.answer(f"Готово. Добавлен админ: {message.from_user.id}")
+    """Добавляет пользователя в список администраторов"""
+    user_id = message.from_user.id
+    username = message.from_user.username or "без username"
+    
+    try:
+        # Добавляем в память
+        ADMIN_IDS.add(user_id)
+        
+        # Сохраняем в БД
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO admins (user_id, username) VALUES (?, ?)",
+                (user_id, username)
+            )
+            await db.commit()
+        
+        logger.info(f"✅ Добавлен администратор: user_id={user_id}, username=@{username}")
+        await message.answer(
+            f"✅ <b>Готово!</b>\n\n"
+            f"Добавлен администратор:\n"
+            f"ID: <code>{user_id}</code>\n"
+            f"Username: @{username}\n\n"
+            f"Теперь вы можете использовать административные команды.",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка добавления админа: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка при добавлении администратора: {e}")
+
+
+@dp.message(Command("webhook"))
+async def cmd_webhook(message: Message):
+    """Управление webhook (только для админов)"""
+    if not is_admin(message.from_user.id):
+        return await message.answer("❌ У вас нет прав администратора")
+    
+    try:
+        webhook_info = await bot.get_webhook_info()
+        if webhook_info.url and webhook_info.url != "":
+            await message.answer(
+                f"📡 <b>Webhook активен</b>\n\n"
+                f"URL: <code>{webhook_info.url}</code>\n"
+                f"Pending updates: {webhook_info.pending_update_count}\n\n"
+                f"Используйте /deletewebhook для удаления",
+                parse_mode="HTML"
+            )
+        else:
+            await message.answer(
+                "ℹ️ <b>Webhook не установлен</b>\n\n"
+                "Используйте polling для получения обновлений.\n"
+                "Для установки webhook используйте API endpoint /api/set-webhook",
+                parse_mode="HTML"
+            )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command("deletewebhook"))
+async def cmd_delete_webhook(message: Message):
+    """Удаляет webhook (только для админов)"""
+    if not is_admin(message.from_user.id):
+        return await message.answer("❌ У вас нет прав администратора")
+    
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await message.answer(
+            "✅ <b>Webhook удален</b>\n\n"
+            "Теперь можно использовать polling. Перезапустите приложение.",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при удалении webhook: {e}")
 
 
 @dp.message(Command("products"))
 async def cmd_products(message: Message):
     """Показывает список всех товаров с возможностью удаления (только для админов)"""
-    if not is_admin(message.from_user.id):
-        return await message.answer("❌ У вас нет прав администратора")
+    user_id = message.from_user.id
+    logger.info(f"Команда /products от user_id={user_id}, is_admin={is_admin(user_id)}, ADMIN_IDS={ADMIN_IDS}")
+    
+    if not is_admin(user_id):
+        await message.answer(
+            "❌ <b>У вас нет прав администратора</b>\n\n"
+            "Используйте команду /setadmin для получения прав администратора.",
+            parse_mode="HTML"
+        )
+        return
     
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -473,7 +622,10 @@ async def cmd_products(message: Message):
 @dp.callback_query(F.data.startswith("toggle_product_"))
 async def toggle_product(callback: CallbackQuery):
     """Переключает статус товара (активный/неактивный)"""
-    if not is_admin(callback.from_user.id):
+    user_id = callback.from_user.id
+    logger.info(f"Callback toggle_product от user_id={user_id}, is_admin={is_admin(user_id)}, ADMIN_IDS={ADMIN_IDS}")
+    
+    if not is_admin(user_id):
         await callback.answer("❌ У вас нет прав администратора", show_alert=True)
         return
     
@@ -782,7 +934,9 @@ async def cancel_add(callback: CallbackQuery, state: FSMContext):
 # --- RUNNERS ---
 
 async def run_api():
-    config = uvicorn.Config(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), log_level="info")
+    port = int(os.environ.get("PORT", "7070"))
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    logger.info(f"🌐 API сервер запущен на порту {port}")
     server = uvicorn.Server(config)
     await server.serve()
 
@@ -790,26 +944,48 @@ async def run_api():
 async def run_bot():
     """Запускает бота с правильной обработкой webhook и ошибок"""
     try:
-        # Отменяем webhook, если он был установлен (важно для предотвращения конфликтов)
-        logger.info("Проверяем и отменяем webhook (если был установлен)...")
-        try:
-            await bot.delete_webhook(drop_pending_updates=True)
-            logger.info("Webhook успешно отменен")
-            # Небольшая задержка для завершения всех запросов
-            await asyncio.sleep(1)
-        except Exception as webhook_error:
-            logger.warning(f"Ошибка при отмене webhook (возможно, его не было): {webhook_error}")
+        # Проверяем текущий статус webhook
+        webhook_info = await bot.get_webhook_info()
+        has_active_webhook = webhook_info.url and webhook_info.url != ""
         
-        logger.info("Запускаем polling...")
+        # Проверяем, нужно ли использовать webhook или polling
+        use_webhook = os.environ.get("USE_WEBHOOK", "false").lower() == "true"
         
-        # Запускаем polling с правильными параметрами
-        await dp.start_polling(
-            bot,
-            allowed_updates=dp.resolve_used_update_types(),
-            drop_pending_updates=True  # Игнорируем старые обновления при запуске
-        )
+        # Если USE_WEBHOOK=true и есть WEBAPP_URL, используем webhook
+        if use_webhook and WEBAPP_URL:
+            webhook_url = f"{WEBAPP_URL}/api/webhook"
+            logger.info(f"Устанавливаем webhook: {webhook_url}")
+            await bot.set_webhook(webhook_url, drop_pending_updates=True)
+            logger.info("✅ Webhook установлен. Бот работает через Tuna туннель.")
+            logger.info("📡 Обновления будут приходить через /api/webhook endpoint")
+            # При использовании webhook бот обрабатывается через API endpoint
+            # Не запускаем polling, просто ждем
+            while True:
+                await asyncio.sleep(3600)  # Ждем час, чтобы не завершать задачу
+        else:
+            # Используем polling (по умолчанию)
+            if has_active_webhook:
+                logger.warning(f"⚠️  Обнаружен активный webhook: {webhook_info.url}")
+                logger.info("Удаляем webhook для использования polling...")
+            
+            # ВСЕГДА отменяем webhook перед запуском polling
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+                logger.info("✅ Webhook удален. Запускаем polling...")
+                await asyncio.sleep(2)  # Даем время для завершения операций
+            except Exception as webhook_error:
+                logger.warning(f"⚠️  Ошибка при удалении webhook: {webhook_error}")
+                # Пытаемся продолжить, возможно webhook уже удален
+            
+            # Запускаем polling
+            logger.info("🔄 Запуск polling...")
+            await dp.start_polling(
+                bot,
+                allowed_updates=dp.resolve_used_update_types(),
+                drop_pending_updates=True
+            )
     except Exception as e:
-        logger.error(f"Ошибка при запуске бота: {e}", exc_info=True)
+        logger.error(f"❌ Ошибка при запуске бота: {e}", exc_info=True)
         raise
 
 
@@ -826,6 +1002,7 @@ async def main():
         logger.info("Инициализация базы данных...")
         await init_db()
         logger.info("База данных инициализирована")
+        logger.info(f"Загружено администраторов: {len(ADMIN_IDS)} - {ADMIN_IDS}")
         
         logger.info("Запуск API сервера и бота...")
         
