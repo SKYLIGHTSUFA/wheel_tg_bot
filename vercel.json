@@ -1,0 +1,21 @@
+{
+    "rewrites": [
+      {
+        "source": "/api/webhook",
+        "destination": "/api/webhook.py"
+      },
+      {
+        "source": "/",
+        "destination": "/api/index.py"
+      },
+      {
+        "source": "/index.html",
+        "destination": "/api/index.py"
+      },
+      {
+        "source": "/api/(.*)",
+        "destination": "/api/index.py"
+      }
+    ]
+  }
+  
