@@ -514,22 +514,7 @@
         </div>
     </div>
 
-
-
     
-    <div class="modal" id="bookingModal">
-        <div class="modal-content">
-            <h2>Бронирование товара</h2>
-            <form id="bookingForm">
-                <label>Товар: <input type="text" id="bookingProductName" readonly class="form-input"></label>
-                <label>Имя: <input type="text" id="bookingName" required class="form-input"></label>
-                <label>Телефон: <input type="tel" id="bookingPhone" required class="form-input"></label>
-                <label>Количество: <input type="number" id="bookingQty" value="1" min="1" class="form-input"></label>
-                <label>Комментарий: <textarea id="bookingComment" class="form-input" style="min-height: 80px;"></textarea></label>
-                <button type="submit" class="btn btn-primary" style="width: 100%;">Забронировать</button>
-            </form>
-        </div>
-    </div>
 
     <div class="modal" id="paymentModal" onclick="handleModalClick(event)">
         <div class="modal-content" style="max-height: 90vh; overflow-y: auto;" onclick="event.stopPropagation();">
@@ -746,7 +731,6 @@
                 <div class="product-specs">${(p.specs || []).map(s => `<span class="spec-tag">${s}</span>`).join('')}</div>
                 <div class="product-actions">
                     <button class="btn btn-primary" onclick="addToCart(${p.id})">В корзину</button>
-                    <button class="btn btn-secondary" onclick="bookProduct(${p.id})">Бронь</button>
                 </div>
             </div>
         </div>
@@ -840,21 +824,7 @@
         renderProducts(filtered);
     });
 
-    // --- 6. БРОНИРОВАНИЕ (МОДАЛКА) ---
-    window.bookProduct = function(id) {
-        const product = products.find(p => p.id === id);
-        document.getElementById('bookingProductName').value = product.name;
-        document.getElementById('bookingModal').classList.add('active');
-    };
-
-    document.getElementById('bookingForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        alert('Спасибо! (Функция бронирования пока только для примера)');
-        document.getElementById('bookingModal').classList.remove('active');
-        document.getElementById('bookingForm').reset();
-    });
-
-    // --- 7. ОФОРМЛЕНИЕ ЗАКАЗА (только наличные) ---
+    // --- 6. ОФОРМЛЕНИЕ ЗАКАЗА (только наличные) ---
     let SHOP_ADDRESS = "Г. Уфа, ул. Центральная, 33/9";
     let SHOP_PHONE = "+79177364777";
     let SHOP_HOURS = "Работаем без выходных с 09:00 до 21:00";
