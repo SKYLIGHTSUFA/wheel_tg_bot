@@ -539,7 +539,13 @@
                     <div style="margin-bottom: 20px; padding: 16px; background: var(--background); border-radius: 12px;">
                         <div style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border);">
                             <div style="font-weight: 600; color: var(--primary); margin-bottom: 6px;">📍 Филиал №1:</div>
-                            <div style="font-size: 15px; margin-bottom: 8px;">Республика Башкортостан, г. Уфа, ул. Центральная, 33/9</div>
+                            <div style="font-size: 15px; margin-bottom: 8px;">
+                                <a href="javascript:void(0)" 
+                                   onclick="openMaps('Республика Башкортостан, г. Уфа, ул. Центральная, 33/9')"
+                                   style="color: var(--primary); text-decoration: none; font-weight: 500; border-bottom: 1px dashed var(--primary); cursor: pointer;">
+                                    📍 Республика Башкортостан, г. Уфа, ул. Центральная, 33/9
+                                </a>
+                            </div>
                             <div style="font-size: 14px; line-height: 1.8;">
                                 <div style="margin-bottom: 4px;">📞 <a href="tel:+79178056539" style="color: var(--primary); text-decoration: none; font-weight: 500;">+7 (917) 805-65-39</a></div>
                                 <div style="margin-bottom: 4px;">📞 <a href="tel:+79276372039" style="color: var(--primary); text-decoration: none; font-weight: 500;">+7 (927) 637-20-39</a></div>
@@ -550,7 +556,13 @@
                         </div>
                         <div style="margin-bottom: 12px;">
                             <div style="font-weight: 600; color: var(--primary); margin-bottom: 6px;">📍 Филиал №2:</div>
-                            <div style="font-size: 15px; margin-bottom: 8px;">Республика Башкортостан, г. Уфа, ул. Трамвайная, д. 13/1 (ТД Радуга)</div>
+                            <div style="font-size: 15px; margin-bottom: 8px;">
+                                <a href="javascript:void(0)" 
+                                   onclick="openMaps('Республика Башкортостан, г. Уфа, ул. Трамвайная, д. 13/1 (ТД Радуга)')"
+                                   style="color: var(--primary); text-decoration: none; font-weight: 500; border-bottom: 1px dashed var(--primary); cursor: pointer;">
+                                    📍 Республика Башкортостан, г. Уфа, ул. Трамвайная, д. 13/1 (ТД Радуга)
+                                </a>
+                            </div>
                             <div style="font-size: 14px; line-height: 1.8;">
                                 <div style="margin-bottom: 4px;">📞 <a href="tel:+79177364777" style="color: var(--primary); text-decoration: none; font-weight: 500;">+7 (917) 736-47-77</a></div>
                                 <div style="margin-bottom: 4px;">📞 <a href="tel:+79962853700" style="color: var(--primary); text-decoration: none; font-weight: 500;">+7 (996) 285-37-00</a></div>
@@ -627,6 +639,71 @@
 
     const products = [];
     let cart = [];
+
+    // Функция для открытия адреса в картах (глобальная)
+    window.openMaps = function(address) {
+        // Определяем устройство и открываем соответствующее приложение карт
+        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+        const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
+        const isAndroid = /android/i.test(userAgent);
+        
+        // Кодируем адрес для URL
+        const encodedAddress = encodeURIComponent(address);
+        
+        // В Telegram WebApp лучше использовать универсальные ссылки
+        // Яндекс.Карты популярны в России и работают на всех платформах
+        const yandexMapsUrl = `https://yandex.ru/maps/?text=${encodedAddress}`;
+        const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
+        
+        // Пытаемся открыть нативное приложение, если не получится - откроем веб-версию
+        if (isIOS) {
+            // Для iOS пробуем Apple Maps через специальную схему
+            const appleMapsUrl = `maps://maps.apple.com/?q=${encodedAddress}`;
+            
+            // Пытаемся открыть Apple Maps
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = appleMapsUrl;
+            document.body.appendChild(iframe);
+            
+            // Если через 500мс не открылось, открываем Яндекс.Карты
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+                // В Telegram WebApp используем tg.openLink для открытия внешних ссылок
+                if (tg && tg.openLink) {
+                    tg.openLink(yandexMapsUrl);
+                } else {
+                    window.open(yandexMapsUrl, '_blank');
+                }
+            }, 500);
+        } else if (isAndroid) {
+            // Для Android пробуем открыть Яндекс.Карты через нативное приложение
+            const yandexAppUrl = `yandexmaps://maps.yandex.ru/?text=${encodedAddress}`;
+            
+            // Пытаемся открыть приложение Яндекс.Карты
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = yandexAppUrl;
+            document.body.appendChild(iframe);
+            
+            // Если через 500мс не открылось, открываем веб-версию
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+                if (tg && tg.openLink) {
+                    tg.openLink(yandexMapsUrl);
+                } else {
+                    window.open(yandexMapsUrl, '_blank');
+                }
+            }, 500);
+        } else {
+            // Для других устройств используем Яндекс.Карты (веб-версия)
+            if (tg && tg.openLink) {
+                tg.openLink(yandexMapsUrl);
+            } else {
+                window.open(yandexMapsUrl, '_blank');
+            }
+        }
+    };
 
     // --- 1. ЗАГРУЗКА ТОВАРОВ ---
     async function loadProducts() {
