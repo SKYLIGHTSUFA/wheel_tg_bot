@@ -590,6 +590,39 @@
     if (tg) {
         tg.ready();
         tg.expand();
+        
+        // Предотвращаем открытие старого приложения при нажатии на кнопку слева от клавиатуры
+        // Убеждаемся, что используется правильный URL
+        const currentUrl = window.location.href;
+        
+        // Обработка события открытия WebApp
+        tg.onEvent('viewportChanged', () => {
+            // При изменении viewport проверяем, что мы используем правильный URL
+            if (window.location.href !== currentUrl && currentUrl) {
+                // Если URL изменился на старый, перенаправляем на текущий
+                const urlParams = new URLSearchParams(window.location.search);
+                if (!urlParams.has('_') || urlParams.get('_') !== Date.now().toString().slice(0, -3)) {
+                    window.location.href = currentUrl + (currentUrl.includes('?') ? '&' : '?') + '_=' + Date.now().toString().slice(0, -3);
+                }
+            }
+        });
+        
+        // Обработка BackButton для правильного закрытия
+        if (tg.BackButton) {
+            tg.BackButton.onClick(() => {
+                tg.close();
+            });
+            tg.BackButton.show();
+        }
+        
+        // Принудительно обновляем URL при загрузке, чтобы избежать кэширования
+        if (window.location.search.indexOf('_=') === -1) {
+            const separator = window.location.search ? '&' : '?';
+            const newUrl = window.location.href + separator + '_=' + Date.now().toString().slice(0, -3);
+            if (window.location.href !== newUrl) {
+                window.history.replaceState({}, '', newUrl);
+            }
+        }
     }
 
     const products = [];
