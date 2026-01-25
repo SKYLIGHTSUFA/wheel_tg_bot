@@ -294,6 +294,59 @@
             cursor: pointer;
         }
 
+        .cart-branch-section {
+            margin: 16px 0;
+            padding: 16px;
+            background: var(--surface);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+
+        .cart-branch-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 12px;
+        }
+
+        .branch-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .branch-card {
+            padding: 14px 16px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            background: var(--background);
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: left;
+        }
+
+        .branch-card:hover {
+            border-color: var(--primary);
+            background: rgba(59, 130, 246, 0.08);
+        }
+
+        .branch-card.selected {
+            border-color: var(--primary);
+            background: rgba(59, 130, 246, 0.12);
+            box-shadow: 0 0 0 1px var(--primary);
+        }
+
+        .branch-card-name {
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 4px;
+        }
+
+        .branch-card-address {
+            font-size: 13px;
+            color: var(--text-light);
+        }
+
         .bottom-nav {
             position: fixed;
             bottom: 0;
@@ -601,6 +654,10 @@
                     <div style="margin-bottom: 12px;">Сумма: <span id="summaryPrice">0 ₽</span></div>
                     <div style="font-weight: 700; color: var(--primary); font-size: 18px;">Итого: <span id="totalPrice">0 ₽</span></div>
                 </div>
+                <div class="cart-branch-section" id="cartBranchSection">
+                    <div class="cart-branch-title">📍 Филиал получения</div>
+                    <div class="branch-cards" id="branchCards"></div>
+                </div>
                 <button class="checkout-btn" id="checkoutBtn">Оформить заказ</button>
             </div>
         </div>
@@ -614,7 +671,7 @@
             <div id="quantityModalProductInfo" style="margin-bottom: 20px;">
                 <div style="font-weight: 600; font-size: 18px; margin-bottom: 12px;" id="quantityModalProductName"></div>
                 <div style="margin-bottom: 8px; font-size: 14px; color: var(--text-light);">Цена за штуку: <span style="color: var(--primary); font-weight: 600;" id="quantityModalPricePerUnit"></span></div>
-                <div style="color: var(--primary); font-weight: 700; font-size: 20px;">Цена за <span id="quantityModalQuantityText">1</span> штук: <span id="quantityModalTotalPrice"></span></div>
+                <div style="color: var(--primary); font-weight: 700; font-size: 20px;">Цена за <span id="quantityModalQuantityText">1</span> шт.: <span id="quantityModalTotalPrice"></span></div>
             </div>
             <div class="quantity-selector">
                 <button class="quantity-btn" id="quantityDecrease" onclick="changeQuantity(-1)">−</button>
@@ -625,6 +682,14 @@
                 <button class="btn btn-secondary" onclick="closeQuantityModal()" style="flex: 1;">Отмена</button>
                 <button class="btn btn-primary" onclick="confirmAddToCart()" style="flex: 1;">Добавить</button>
             </div>
+        </div>
+    </div>
+
+    <div class="modal" id="branchInfoModal" onclick="handleBranchInfoModalClick(event)">
+        <div class="modal-content" style="max-height: 90vh; overflow-y: auto;" onclick="event.stopPropagation();">
+            <h2 style="margin-bottom: 16px;" id="branchInfoTitle">Филиал</h2>
+            <div id="branchInfoContent"></div>
+            <button class="btn btn-primary" style="width: 100%; margin-top: 20px;" onclick="closeBranchInfoModal()">Закрыть</button>
         </div>
     </div>
 
@@ -735,6 +800,26 @@
 
     const products = [];
     let cart = [];
+    let selectedBranchId = 1;
+
+    const BRANCHES = [
+        {
+            id: 1,
+            name: 'Филиал №1',
+            address: 'Республика Башкортостан, г. Уфа, ул. Центральная, 33/9',
+            phones: ['+79178056539', '+79276372039'],
+            hours: 'с 09:00 до 21:00',
+            telegram: []
+        },
+        {
+            id: 2,
+            name: 'Филиал №2',
+            address: 'Республика Башкортостан, г. Уфа, ул. Трамвайная, д. 13/1 (ТД Радуга)',
+            phones: ['+79177364777', '+79962853700', '+79613722902'],
+            hours: 'с 09:00 до 20:00',
+            telegram: ['Shina102ufa', 'ZZZ02']
+        }
+    ];
 
     // Функция для открытия адреса в картах (глобальная)
     window.openMaps = function(address) {
@@ -1008,8 +1093,63 @@
             document.getElementById('summaryCount').textContent = count;
             document.getElementById('summaryPrice').textContent = total + ' ₽';
             document.getElementById('totalPrice').textContent = total + ' ₽';
+            renderBranchCards();
         }
     }
+
+    function renderBranchCards() {
+        const container = document.getElementById('branchCards');
+        if (!container) return;
+        container.innerHTML = BRANCHES.map(b => `
+            <div class="branch-card ${selectedBranchId === b.id ? 'selected' : ''}" 
+                 data-branch-id="${b.id}"
+                 onclick="selectBranchAndShowInfo(${b.id})">
+                <div class="branch-card-name">${b.name}</div>
+                <div class="branch-card-address">${b.address}</div>
+            </div>
+        `).join('');
+    }
+
+    window.selectBranchAndShowInfo = function(branchId) {
+        selectedBranchId = branchId;
+        renderBranchCards();
+        showBranchInfo(branchId);
+    };
+
+    function showBranchInfo(branchId) {
+        const b = BRANCHES.find(x => x.id === branchId);
+        if (!b) return;
+        document.getElementById('branchInfoTitle').textContent = b.name;
+        const phonesHtml = b.phones.map(p => {
+            const fmt = p.replace(/(\+7)(\d{3})(\d{3})(\d{2})(\d{2})/, '$1 ($2) $3-$4-$5');
+            return `<div style="margin-bottom: 6px;">📞 <a href="tel:${p}" style="color: var(--primary); text-decoration: none; font-weight: 500;">${fmt}</a></div>`;
+        }).join('');
+        const tgHtml = b.telegram.length ? b.telegram.map(t => 
+            `<a href="https://t.me/${t.replace('@','')}" style="color: var(--primary); text-decoration: none; font-weight: 500;">@${t.replace('@','')}</a>`
+        ).join(' ') : '';
+        const tgBlock = tgHtml ? `<div style="margin-top: 8px;">👤 ${tgHtml}</div>` : '';
+        document.getElementById('branchInfoContent').innerHTML = `
+            <div style="margin-bottom: 16px;">
+                <a href="javascript:void(0)" onclick="openMaps('${b.address.replace(/'/g, "\\'")}'); return false;"
+                   style="color: var(--primary); text-decoration: none; font-weight: 500; border-bottom: 1px dashed var(--primary); cursor: pointer; font-size: 15px;">
+                    📍 ${b.address}
+                </a>
+            </div>
+            <div style="font-size: 14px; line-height: 1.8;">${phonesHtml}${tgBlock}</div>
+            <div style="margin-top: 12px; font-size: 14px;">
+                <span style="font-weight: 600; color: var(--primary);">🕐 Режим работы:</span> ${b.hours}
+            </div>
+        `;
+        document.getElementById('branchInfoModal').classList.add('active');
+    }
+
+    window.closeBranchInfoModal = function() {
+        document.getElementById('branchInfoModal').classList.remove('active');
+    };
+
+    window.handleBranchInfoModalClick = function(event) {
+        if (event.target.id === 'branchInfoModal') closeBranchInfoModal();
+    };
 
     // --- 4. НАВИГАЦИЯ (ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК) ---
     function showProducts() {
@@ -1126,6 +1266,10 @@
     document.getElementById('paymentConfirmBtn').addEventListener('click', async () => {
         const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
         const user = tg?.initDataUnsafe?.user || {};
+        const branch = BRANCHES.find(b => b.id === selectedBranchId);
+        const branchComment = branch
+            ? `Филиал: ${branch.name}. Адрес: ${branch.address}. Телефоны: ${branch.phones.join(', ')}. Режим: ${branch.hours}`
+            : `Адрес: ${SHOP_ADDRESS}. Телефон: ${SHOP_PHONE}`;
 
         const payload = {
             user_id: user.id || null,
@@ -1133,7 +1277,7 @@
             full_name: [user.first_name, user.last_name].filter(Boolean).join(" "),
             items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
             total,
-            comment: `Заказ из WebApp. Адрес: ${SHOP_ADDRESS}. Телефон: ${SHOP_PHONE}`,
+            comment: `Заказ из WebApp. ${branchComment}`,
             payment_method: "cash"
         };
 

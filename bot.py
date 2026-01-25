@@ -359,7 +359,9 @@ async def create_order(order: OrderRequest):
         user_link = f"<a href='tg://user?id={order.user_id}'>{order.full_name}</a>"
         lines.append(f"👤 Клиент: {user_link} (ID: {order.user_id})")
     if order.username:
-        lines.append(f"💬 Комментарий: @{order.username}")
+        lines.append(f"👤 Username: @{order.username}")
+    if order.comment:
+        lines.append(f"📝 {order.comment}")
 
     lines.append("\n🛒 <b>Товары:</b>")
     for item in order.items:
