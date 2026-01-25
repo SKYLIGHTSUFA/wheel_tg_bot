@@ -473,6 +473,98 @@
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.15);
         }
+
+        .quantity-selector {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 20px 0;
+        }
+
+        .quantity-btn {
+            width: 40px;
+            height: 40px;
+            border: 2px solid var(--primary);
+            background: var(--surface);
+            color: var(--primary);
+            border-radius: 8px;
+            font-size: 20px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .quantity-btn:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .quantity-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .quantity-btn:disabled:hover {
+            background: var(--surface);
+            color: var(--primary);
+        }
+
+        .quantity-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text);
+            min-width: 40px;
+            text-align: center;
+        }
+
+        .cart-quantity-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .cart-quantity-btn {
+            width: 32px;
+            height: 32px;
+            border: 2px solid var(--primary);
+            background: var(--surface);
+            color: var(--primary);
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .cart-quantity-btn:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .cart-quantity-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .cart-quantity-btn:disabled:hover {
+            background: var(--surface);
+            color: var(--primary);
+        }
+
+        .cart-quantity-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text);
+            min-width: 30px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -515,6 +607,25 @@
     </div>
 
     
+
+    <div class="modal" id="quantityModal" onclick="handleQuantityModalClick(event)">
+        <div class="modal-content" style="max-height: 90vh; overflow-y: auto;" onclick="event.stopPropagation();">
+            <h2 style="margin-bottom: 20px;">Выберите количество</h2>
+            <div id="quantityModalProductInfo" style="margin-bottom: 20px;">
+                <div style="font-weight: 600; font-size: 18px; margin-bottom: 8px;" id="quantityModalProductName"></div>
+                <div style="color: var(--primary); font-weight: 700; font-size: 20px;" id="quantityModalProductPrice"></div>
+            </div>
+            <div class="quantity-selector">
+                <button class="quantity-btn" id="quantityDecrease" onclick="changeQuantity(-1)">−</button>
+                <div class="quantity-value" id="quantityValue">1</div>
+                <button class="quantity-btn" id="quantityIncrease" onclick="changeQuantity(1)">+</button>
+            </div>
+            <div style="display: flex; gap: 12px; margin-top: 20px;">
+                <button class="btn btn-secondary" onclick="closeQuantityModal()" style="flex: 1;">Отмена</button>
+                <button class="btn btn-primary" onclick="confirmAddToCart()" style="flex: 1;">Добавить</button>
+            </div>
+        </div>
+    </div>
 
     <div class="modal" id="paymentModal" onclick="handleModalClick(event)">
         <div class="modal-content" style="max-height: 90vh; overflow-y: auto;" onclick="event.stopPropagation();">
@@ -738,24 +849,113 @@
     }
 
     // --- 3. ЛОГИКА КОРЗИНЫ ---
+    let currentProductId = null;
+    let currentQuantity = 1;
+
     // Делаем функции глобальными (window.), чтобы работали в onclick HTML
     window.addToCart = function(id) {
         const product = products.find(p => p.id === id);
         if (!product) return;
 
-        const item = cart.find(p => p.id === id);
-        if (item) item.qty += 1;
-        else cart.push({ ...product, qty: 1 });
+        // Проверяем, есть ли уже этот товар в корзине
+        const existingItem = cart.find(p => p.id === id);
+        if (existingItem && existingItem.qty >= 8) {
+            alert('Максимальное количество товара в корзине - 8 штук');
+            return;
+        }
+
+        // Открываем модальное окно выбора количества
+        currentProductId = id;
+        currentQuantity = existingItem ? existingItem.qty + 1 : 1;
+        
+        document.getElementById('quantityModalProductName').textContent = product.name;
+        document.getElementById('quantityModalProductPrice').textContent = product.price + ' ₽';
+        document.getElementById('quantityValue').textContent = currentQuantity;
+        
+        // Обновляем состояние кнопок
+        updateQuantityButtons();
+        
+        document.getElementById('quantityModal').classList.add('active');
+    };
+
+    window.changeQuantity = function(delta) {
+        const newQuantity = currentQuantity + delta;
+        if (newQuantity >= 1 && newQuantity <= 8) {
+            currentQuantity = newQuantity;
+            document.getElementById('quantityValue').textContent = currentQuantity;
+            updateQuantityButtons();
+        }
+    };
+
+    function updateQuantityButtons() {
+        const decreaseBtn = document.getElementById('quantityDecrease');
+        const increaseBtn = document.getElementById('quantityIncrease');
+        
+        decreaseBtn.disabled = currentQuantity <= 1;
+        increaseBtn.disabled = currentQuantity >= 8;
+    }
+
+    window.confirmAddToCart = function() {
+        if (!currentProductId) return;
+
+        const product = products.find(p => p.id === currentProductId);
+        if (!product) return;
+
+        const item = cart.find(p => p.id === currentProductId);
+        if (item) {
+            // Если товар уже есть в корзине, обновляем количество
+            const newQty = item.qty + currentQuantity;
+            if (newQty > 8) {
+                alert('Максимальное количество товара в корзине - 8 штук');
+                return;
+            }
+            item.qty = newQty;
+        } else {
+            cart.push({ ...product, qty: currentQuantity });
+        }
 
         updateCart();
+        closeQuantityModal();
 
         // Вибрация для тактильного отклика (если доступно)
-        if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+    };
+
+    window.closeQuantityModal = function() {
+        document.getElementById('quantityModal').classList.remove('active');
+        currentProductId = null;
+        currentQuantity = 1;
+    };
+
+    window.handleQuantityModalClick = function(event) {
+        if (event.target.id === 'quantityModal') {
+            closeQuantityModal();
+        }
     };
 
     window.removeFromCart = function(id) {
         cart = cart.filter(p => p.id !== id);
         updateCart();
+    };
+
+    window.decreaseCartQuantity = function(id) {
+        const item = cart.find(p => p.id === id);
+        if (item && item.qty > 1) {
+            item.qty -= 1;
+            updateCart();
+            if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+        }
+    };
+
+    window.increaseCartQuantity = function(id) {
+        const item = cart.find(p => p.id === id);
+        if (item && item.qty < 8) {
+            item.qty += 1;
+            updateCart();
+            if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+        } else if (item && item.qty >= 8) {
+            alert('Максимальное количество товара - 8 штук');
+        }
     };
 
     function updateCart() {
@@ -780,11 +980,16 @@
 
             list.innerHTML = cart.map(item => `
                 <div class="cart-item">
-                    <div>
-                        <div style="font-weight: 600;">${item.name}</div>
-                        <div style="color: var(--primary); font-weight: 700;">${item.price * item.qty} ₽ <span style="font-size:12px;color:#999">(${item.qty} шт)</span></div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; margin-bottom: 8px;">${item.name}</div>
+                        <div style="color: var(--primary); font-weight: 700; margin-bottom: 8px;">${item.price * item.qty} ₽</div>
+                        <div class="cart-quantity-controls">
+                            <button class="cart-quantity-btn" onclick="decreaseCartQuantity(${item.id})" ${item.qty <= 1 ? 'disabled' : ''}>−</button>
+                            <div class="cart-quantity-value">${item.qty}</div>
+                            <button class="cart-quantity-btn" onclick="increaseCartQuantity(${item.id})" ${item.qty >= 8 ? 'disabled' : ''}>+</button>
+                        </div>
                     </div>
-                    <button style="padding: 6px 12px; background: var(--secondary); color: white; border: none; border-radius: 6px; cursor: pointer;" onclick="removeFromCart(${item.id})">✕</button>
+                    <button style="padding: 6px 12px; background: var(--secondary); color: white; border: none; border-radius: 6px; cursor: pointer; margin-left: 12px;" onclick="removeFromCart(${item.id})">✕</button>
                 </div>
             `).join('');
 
