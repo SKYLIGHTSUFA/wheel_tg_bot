@@ -612,8 +612,9 @@
         <div class="modal-content" style="max-height: 90vh; overflow-y: auto;" onclick="event.stopPropagation();">
             <h2 style="margin-bottom: 20px;">Выберите количество</h2>
             <div id="quantityModalProductInfo" style="margin-bottom: 20px;">
-                <div style="font-weight: 600; font-size: 18px; margin-bottom: 8px;" id="quantityModalProductName"></div>
-                <div style="color: var(--primary); font-weight: 700; font-size: 20px;" id="quantityModalProductPrice"></div>
+                <div style="font-weight: 600; font-size: 18px; margin-bottom: 12px;" id="quantityModalProductName"></div>
+                <div style="margin-bottom: 8px; font-size: 14px; color: var(--text-light);">Цена за штуку: <span style="color: var(--primary); font-weight: 600;" id="quantityModalPricePerUnit"></span></div>
+                <div style="color: var(--primary); font-weight: 700; font-size: 20px;">Цена за <span id="quantityModalQuantityText">1</span> штук: <span id="quantityModalTotalPrice"></span></div>
             </div>
             <div class="quantity-selector">
                 <button class="quantity-btn" id="quantityDecrease" onclick="changeQuantity(-1)">−</button>
@@ -851,6 +852,7 @@
     // --- 3. ЛОГИКА КОРЗИНЫ ---
     let currentProductId = null;
     let currentQuantity = 1;
+    let currentProductPrice = 0;
 
     // Делаем функции глобальными (window.), чтобы работали в onclick HTML
     window.addToCart = function(id) {
@@ -866,10 +868,12 @@
 
         // Открываем модальное окно выбора количества
         currentProductId = id;
+        currentProductPrice = product.price;
         currentQuantity = existingItem ? existingItem.qty + 1 : 1;
         
         document.getElementById('quantityModalProductName').textContent = product.name;
-        document.getElementById('quantityModalProductPrice').textContent = product.price + ' ₽';
+        document.getElementById('quantityModalPricePerUnit').textContent = product.price + ' ₽';
+        updateQuantityPrice();
         document.getElementById('quantityValue').textContent = currentQuantity;
         
         // Обновляем состояние кнопок
@@ -878,11 +882,18 @@
         document.getElementById('quantityModal').classList.add('active');
     };
 
+    function updateQuantityPrice() {
+        const totalPrice = currentProductPrice * currentQuantity;
+        document.getElementById('quantityModalTotalPrice').textContent = totalPrice + ' ₽';
+        document.getElementById('quantityModalQuantityText').textContent = currentQuantity;
+    }
+
     window.changeQuantity = function(delta) {
         const newQuantity = currentQuantity + delta;
         if (newQuantity >= 1 && newQuantity <= 8) {
             currentQuantity = newQuantity;
             document.getElementById('quantityValue').textContent = currentQuantity;
+            updateQuantityPrice();
             updateQuantityButtons();
         }
     };
@@ -925,6 +936,7 @@
         document.getElementById('quantityModal').classList.remove('active');
         currentProductId = null;
         currentQuantity = 1;
+        currentProductPrice = 0;
     };
 
     window.handleQuantityModalClick = function(event) {
