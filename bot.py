@@ -23,6 +23,7 @@ from pydantic import BaseModel
 import uvicorn
 import shutil
 import uuid
+from PIL import Image
 
 # Настройка логирования
 logging.basicConfig(
@@ -30,6 +31,41 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Оптимальный размер изображений товаров (по длинной стороне)
+IMAGE_MAX_SIZE = 800
+IMAGE_JPEG_QUALITY = 85
+
+
+def resize_image_to_optimal(file_path: str) -> None:
+    """Уменьшает изображение до оптимального размера для карточки товара."""
+    try:
+        with Image.open(file_path) as img:
+            img.load()
+            w, h = img.size
+            if w <= IMAGE_MAX_SIZE and h <= IMAGE_MAX_SIZE:
+                return
+            if w > h:
+                new_w = IMAGE_MAX_SIZE
+                new_h = int(h * IMAGE_MAX_SIZE / w)
+            else:
+                new_h = IMAGE_MAX_SIZE
+                new_w = int(w * IMAGE_MAX_SIZE / h)
+            resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in (".jpg", ".jpeg"):
+                if resized.mode != "RGB":
+                    resized = resized.convert("RGB")
+                resized.save(file_path, "JPEG", quality=IMAGE_JPEG_QUALITY, optimize=True)
+            elif ext == ".png":
+                resized.save(file_path, "PNG", optimize=True)
+            else:
+                if resized.mode != "RGB":
+                    resized = resized.convert("RGB")
+                resized.save(file_path, "JPEG", quality=IMAGE_JPEG_QUALITY, optimize=True)
+    except Exception as e:
+        logger.warning(f"Не удалось изменить размер изображения {file_path}: {e}")
+
 
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8576138519:AAES_lBttGBQ-cvJ_HvcDjTNzYyoGYBOneE")
@@ -311,7 +347,9 @@ async def upload_image(file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Возвращаем относительный путь для использования в API
+    # Приводим к оптимальному размеру для карточки товара
+    resize_image_to_optimal(file_path)
+
     return {"status": "ok", "image_path": f"/api/uploads/{file_name}"}
 
 
@@ -789,6 +827,9 @@ async def process_image(message: Message, state: FSMContext):
 
         # Скачиваем файл
         await bot.download_file(file_path, local_path)
+
+        # Приводим к оптимальному размеру для карточки товара
+        resize_image_to_optimal(local_path)
 
         # Сохраняем путь к изображению
         image = f"/api/uploads/{file_name}"
