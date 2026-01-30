@@ -357,7 +357,7 @@ async def create_order(order: OrderRequest):
         await db.commit()
 
     # 2. Формируем текст сообщения
-    lines = [f"🧾 <b>Новый заказ №{order_number} (через API)</b>"]
+    lines = [f"🧾 <b>Новый заказ №{order_number}</b>"]
     if order.full_name:
         user_link = f"<a href='tg://user?id={order.user_id}'>{order.full_name}</a>"
         lines.append(f"👤 Клиент: {user_link} (ID: {order.user_id})")
