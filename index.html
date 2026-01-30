@@ -698,46 +698,11 @@
             <h2 style="margin-bottom: 20px;">Оплата заказа</h2>
             <div id="paymentInfo">
                 <div class="payment-info" id="cashInfo">
-                    <div style="margin-bottom: 20px; padding: 16px; background: var(--background); border-radius: 12px;">
-                        <div style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border);">
-                            <div style="font-weight: 600; color: var(--primary); margin-bottom: 6px;">📍 Филиал №1:</div>
-                            <div style="font-size: 15px; margin-bottom: 8px;">
-                                <a href="javascript:void(0)" 
-                                   onclick="openMaps('Республика Башкортостан, г. Уфа, ул. Центральная, 33/9')"
-                                   style="color: var(--primary); text-decoration: none; font-weight: 500; border-bottom: 1px dashed var(--primary); cursor: pointer;">
-                                    📍 Республика Башкортостан, г. Уфа, ул. Центральная, 33/9
-                                </a>
-                            </div>
-                            <div style="font-size: 14px; line-height: 1.8;">
-                                <div style="margin-bottom: 4px;">📞 <a href="tel:+79178056539" style="color: var(--primary); text-decoration: none; font-weight: 500;">+7 (917) 805-65-39</a></div>
-                                <div style="margin-bottom: 4px;">📞 <a href="tel:+79276372039" style="color: var(--primary); text-decoration: none; font-weight: 500;">+7 (927) 637-20-39</a></div>
-                            </div>
-                            <div style="margin-top: 8px; font-size: 14px;">
-                                <span style="font-weight: 600; color: var(--primary);">🕐 Режим работы:</span> с 09:00 до 21:00
-                            </div>
-                        </div>
-                        <div style="margin-bottom: 12px;">
-                            <div style="font-weight: 600; color: var(--primary); margin-bottom: 6px;">📍 Филиал №2:</div>
-                            <div style="font-size: 15px; margin-bottom: 8px;">
-                                <a href="javascript:void(0)" 
-                                   onclick="openMaps('Республика Башкортостан, г. Уфа, ул. Трамвайная, д. 13/1 (ТД Радуга)')"
-                                   style="color: var(--primary); text-decoration: none; font-weight: 500; border-bottom: 1px dashed var(--primary); cursor: pointer;">
-                                    📍 Республика Башкортостан, г. Уфа, ул. Трамвайная, д. 13/1 (ТД Радуга)
-                                </a>
-                            </div>
-                            <div style="font-size: 14px; line-height: 1.8;">
-                                <div style="margin-bottom: 4px;">📞 <a href="tel:+79177364777" style="color: var(--primary); text-decoration: none; font-weight: 500;">+7 (917) 736-47-77</a></div>
-                                <div style="margin-bottom: 4px;">📞 <a href="tel:+79962853700" style="color: var(--primary); text-decoration: none; font-weight: 500;">+7 (996) 285-37-00</a></div>
-                                <div style="margin-bottom: 4px;">📞 <a href="tel:+79613722902" style="color: var(--primary); text-decoration: none; font-weight: 500;">+7 (961) 372-29-02</a></div>
-                                <div>👤 <a href="https://t.me/Shina102ufa" style="color: var(--primary); text-decoration: none; font-weight: 500;">@Shina102ufa</a> <a href="https://t.me/ZZZ02" style="color: var(--primary); text-decoration: none; font-weight: 500;">@ZZZ02</a></div>
-                            </div>
-                            <div style="margin-top: 8px; font-size: 14px;">
-                                <span style="font-weight: 600; color: var(--primary);">🕐 Режим работы:</span> с 09:00 до 20:00
-                            </div>
-                         <div style="padding-top: 12px; border-top: 1px solid var(--border);">
-                            <div style="font-weight: 600; color: var(--primary); margin-bottom: 4px;">🚚 Доставка:</div>
-                            <div style="font-size: 14px; ">Отправка транспортной компанией, курьер</div>
-                        </div>
+                    <div id="paymentBranchInfo" style="margin-bottom: 20px; padding: 16px; background: var(--background); border-radius: 12px;"></div>
+                    <div id="contactPhoneBlock" style="display: none; margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px;">📞 Телефон для связи</label>
+                        <input type="tel" id="contactPhone" class="form-input" placeholder="+7 (999) 123-45-67" maxlength="18" style="margin-bottom: 0;">
+                        <div style="font-size: 12px; color: var(--text-light); margin-top: 6px;">Укажите номер, если нет Telegram-никнейма</div>
                     </div>
                     <div style="padding: 12px; background: var(--surface); border-radius: 8px; font-size: 14px; color: var(--text-light); text-align: center;">
                         Оплата производится при получении заказа
@@ -1231,22 +1196,55 @@
         }
     }
 
+    // Заполняет в модальном окне оплаты только информацию о выбранном филиале
+    function fillPaymentBranchInfo() {
+        const branch = BRANCHES.find(b => b.id === selectedBranchId);
+        const container = document.getElementById('paymentBranchInfo');
+        if (!container) return;
+        if (!branch) {
+            container.innerHTML = '<div style="color: var(--text-light);">Выберите филиал в корзине</div>';
+            return;
+        }
+        const phonesHtml = branch.phones.map(p => {
+            const formatted = formatPhoneNumber(p);
+            return `<div style="margin-bottom: 4px;">📞 <a href="tel:${p.replace(/\s/g, '')}" style="color: var(--primary); text-decoration: none; font-weight: 500;">${formatted}</a></div>`;
+        }).join('');
+        const telegramHtml = (branch.telegram && branch.telegram.length) 
+            ? `<div style="margin-top: 6px;">👤 ${branch.telegram.map(t => `<a href="https://t.me/${t}" style="color: var(--primary); text-decoration: none; font-weight: 500;">@${t}</a>`).join(' ')}</div>`
+            : '';
+        const addrEsc = branch.address.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        container.innerHTML = `
+            <div style="font-weight: 600; color: var(--primary); margin-bottom: 8px;">📍 ${branch.name}</div>
+            <div style="font-size: 15px; margin-bottom: 8px;">
+                <a href="javascript:void(0)" data-address="${addrEsc}" onclick="openMaps(this.getAttribute('data-address'))"
+                   style="color: var(--primary); text-decoration: none; font-weight: 500; border-bottom: 1px dashed var(--primary); cursor: pointer;">
+                    📍 ${branch.address}
+                </a>
+            </div>
+            <div style="font-size: 14px; line-height: 1.8;">${phonesHtml}${telegramHtml}</div>
+            <div style="margin-top: 8px; font-size: 14px;">
+                <span style="font-weight: 600; color: var(--primary);">🕐 Режим работы:</span> ${branch.hours}
+            </div>
+        `;
+    }
+
     document.getElementById('checkoutBtn').addEventListener('click', () => {
         if (cart.length === 0) {
             alert('Корзина пуста');
             return;
         }
-        
-        // Обновляем информацию о магазине перед открытием модального окна
-        const addressEl = document.getElementById('shopAddress');
-        const hoursEl = document.getElementById('shopHours');
-        const deliveryEl = document.getElementById('shopDelivery');
-        
-        if (addressEl) addressEl.textContent = SHOP_ADDRESS;
-        if (hoursEl) hoursEl.textContent = SHOP_HOURS;
-        if (deliveryEl) deliveryEl.textContent = SHOP_DELIVERY;
-        
-        // Открываем модальное окно оплаты
+        const user = tg?.initDataUnsafe?.user || {};
+        fillPaymentBranchInfo();
+        const phoneBlock = document.getElementById('contactPhoneBlock');
+        const phoneInput = document.getElementById('contactPhone');
+        if (phoneBlock && phoneInput) {
+            if (user.username) {
+                phoneBlock.style.display = 'none';
+                phoneInput.value = '';
+            } else {
+                phoneBlock.style.display = 'block';
+            }
+        }
         document.getElementById('paymentModal').classList.add('active');
     });
 
@@ -1271,10 +1269,14 @@
             ? `Филиал: ${branch.name}. Адрес: ${branch.address}. Телефоны: ${branch.phones.join(', ')}. Режим: ${branch.hours}`
             : `Адрес: ${SHOP_ADDRESS}. Телефон: ${SHOP_PHONE}`;
 
+        const contactPhoneEl = document.getElementById('contactPhone');
+        const contactPhone = (contactPhoneEl && contactPhoneEl.value) ? contactPhoneEl.value.trim() : null;
+
         const payload = {
             user_id: user.id || null,
             username: user.username || null,
             full_name: [user.first_name, user.last_name].filter(Boolean).join(" "),
+            phone: contactPhone || null,
             items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
             total,
             comment: `Заказ из WebApp. ${branchComment}`,
@@ -1311,7 +1313,8 @@
             }
 
             // Успех
-            alert('Заказ успешно оформлен!');
+            const orderNum = (data && data.order_number) ? data.order_number : '';
+            alert(orderNum ? `Заказ №${orderNum} успешно оформлен!` : 'Заказ успешно оформлен!');
             cart = [];
             updateCart();
             document.getElementById('paymentModal').classList.remove('active');

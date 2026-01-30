@@ -125,6 +125,7 @@ class OrderRequest(BaseModel):
     user_id: Optional[int] = None
     username: Optional[str] = None
     full_name: Optional[str] = None
+    phone: Optional[str] = None  # для обратной связи, если нет telegram username
     items: List[OrderItem]
     total: int
     comment: Optional[str] = ""
@@ -343,23 +344,27 @@ async def get_payment_config():
 # НОВЫЙ МЕТОД: Принимает заказ напрямую через HTTP
 @app.post("/api/order")
 async def create_order(order: OrderRequest):
-    # 1. Сохраняем в БД
+    # 1. Сохраняем в БД и получаем порядковый номер заказа
     payload_json = order.model_dump_json()
     payment_method = order.payment_method or "cash"
+    order_number = None
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
+        cur = await db.execute(
             "INSERT INTO orders(user_id, payload, payment_method) VALUES(?,?,?)",
             (order.user_id, payload_json, payment_method),
         )
+        order_number = cur.lastrowid
         await db.commit()
 
     # 2. Формируем текст сообщения
-    lines = ["🧾 <b>Новый заказ (через API)</b>"]
+    lines = [f"🧾 <b>Новый заказ №{order_number} (через API)</b>"]
     if order.full_name:
         user_link = f"<a href='tg://user?id={order.user_id}'>{order.full_name}</a>"
         lines.append(f"👤 Клиент: {user_link} (ID: {order.user_id})")
     if order.username:
         lines.append(f"👤 Username: @{order.username}")
+    if not order.username and order.phone:
+        lines.append(f"📞 Телефон для связи: {order.phone}")
     if order.comment:
         lines.append(f"📝 {order.comment}")
 
@@ -389,7 +394,7 @@ async def create_order(order: OrderRequest):
     # 3. Отправляем в чат заказов
     try:
         await bot.send_message(ORDERS_CHAT, text, parse_mode="HTML")
-        return {"status": "ok", "message": "Заказ отправлен"}
+        return {"status": "ok", "message": "Заказ отправлен", "order_number": order_number}
     except Exception as e:
         print(f"Ошибка отправки в Telegram: {e}")
         return {"status": "error", "message": str(e)}
