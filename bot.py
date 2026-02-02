@@ -641,6 +641,30 @@ async def cmd_delete_webhook(message: Message):
         await message.answer(f"❌ Ошибка при удалении webhook: {e}")
 
 
+async def _build_products_list_message():
+    """Формирует текст и клавиатуру для списка товаров (для /products и обновления после toggle)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM products ORDER BY id DESC LIMIT 20")
+        rows = await cur.fetchall()
+
+    if not rows:
+        return "📦 Товаров пока нет. Используйте /add для добавления.", None
+
+    text_lines = ["📦 <b>Список товаров:</b>\n"]
+    buttons = []
+    for r in rows:
+        status = "✅" if r["active"] else "❌"
+        text_lines.append(f"{status} <b>{r['name']}</b> — {r['price']} ₽ (ID: {r['id']})")
+        buttons.append([InlineKeyboardButton(
+            text=f"{'❌ Удалить' if r['active'] else '✅ Восстановить'} {r['name']}",
+            callback_data=f"toggle_product_{r['id']}"
+        )])
+    text = "\n".join(text_lines)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    return text, keyboard
+
+
 @dp.message(Command("products"))
 async def cmd_products(message: Message):
     """Показывает список всех товаров с возможностью удаления (только для админов)"""
@@ -655,28 +679,9 @@ async def cmd_products(message: Message):
         )
         return
 
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM products ORDER BY id DESC LIMIT 20")
-        rows = await cur.fetchall()
-
-    if not rows:
-        return await message.answer("📦 Товаров пока нет. Используйте /add для добавления.")
-
-    text_lines = ["📦 <b>Список товаров:</b>\n"]
-    buttons = []
-
-    for r in rows:
-        status = "✅" if r["active"] else "❌"
-        text_lines.append(f"{status} <b>{r['name']}</b> — {r['price']} ₽ (ID: {r['id']})")
-        buttons.append([InlineKeyboardButton(
-            text=f"{'❌ Удалить' if r['active'] else '✅ Восстановить'} {r['name']}",
-            callback_data=f"toggle_product_{r['id']}"
-        )])
-
-    text = "\n".join(text_lines)
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-
+    text, keyboard = await _build_products_list_message()
+    if keyboard is None:
+        return await message.answer(text)
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
 
@@ -707,8 +712,20 @@ async def toggle_product(callback: CallbackQuery):
     action = "удален" if new_status == 0 else "восстановлен"
     await callback.answer(f"✅ Товар {action}")
 
-    # Обновляем сообщение
-    await cmd_products(callback.message)
+    # Редактируем то же сообщение, чтобы список обновился (товар исчезнет/появится)
+    text, keyboard = await _build_products_list_message()
+    try:
+        if keyboard is None:
+            await callback.message.edit_text(text, parse_mode="HTML")
+        else:
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception as e:
+        logger.warning(f"Не удалось отредактировать сообщение со списком товаров: {e}")
+        # Fallback: отправить новое сообщение
+        if keyboard is None:
+            await callback.message.answer(text, parse_mode="HTML")
+        else:
+            await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
 
 @dp.message(Command("cancel"))
