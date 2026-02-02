@@ -667,18 +667,7 @@ async def _build_products_list_message():
 
 @dp.message(Command("products"))
 async def cmd_products(message: Message):
-    """Показывает список всех товаров с возможностью удаления (только для админов)"""
-    user_id = message.from_user.id
-    logger.info(f"Команда /products от user_id={user_id}, is_admin={is_admin(user_id)}, ADMIN_IDS={ADMIN_IDS}")
-
-    if not is_admin(user_id):
-        await message.answer(
-            "❌ <b>У вас нет прав администратора</b>\n\n"
-            "Используйте команду /setadmin для получения прав администратора.",
-            parse_mode="HTML"
-        )
-        return
-
+    """Показывает список всех товаров с возможностью удаления и восстановления"""
     text, keyboard = await _build_products_list_message()
     if keyboard is None:
         return await message.answer(text)
@@ -688,13 +677,6 @@ async def cmd_products(message: Message):
 @dp.callback_query(F.data.startswith("toggle_product_"))
 async def toggle_product(callback: CallbackQuery):
     """Переключает статус товара (активный/неактивный)"""
-    user_id = callback.from_user.id
-    logger.info(f"Callback toggle_product от user_id={user_id}, is_admin={is_admin(user_id)}, ADMIN_IDS={ADMIN_IDS}")
-
-    if not is_admin(user_id):
-        await callback.answer("❌ У вас нет прав администратора", show_alert=True)
-        return
-
     product_id = int(callback.data.replace("toggle_product_", ""))
 
     async with aiosqlite.connect(DB_PATH) as db:
