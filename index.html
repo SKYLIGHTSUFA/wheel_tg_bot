@@ -700,10 +700,10 @@
             <div id="paymentInfo">
                 <div class="payment-info" id="cashInfo">
                     <div id="paymentBranchInfo" style="margin-bottom: 20px; padding: 16px; background: var(--background); border-radius: 12px;"></div>
-                    <div id="contactPhoneBlock" style="display: none; margin-bottom: 16px;">
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px;">📞 Телефон для связи</label>
-                        <input type="tel" id="contactPhone" class="form-input" placeholder="+7 (999) 123-45-67" maxlength="18" style="margin-bottom: 0;">
-                        <div style="font-size: 12px; color: var(--text-light); margin-top: 6px;">Укажите номер, если нет Telegram-никнейма</div>
+                    <div id="contactPhoneBlock" style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px;">📞 Телефон для обратной связи <span style="color: var(--primary);">*</span></label>
+                        <input type="tel" id="contactPhone" class="form-input" placeholder="+7 (999) 123-45-67" maxlength="18" style="margin-bottom: 0;" required>
+                        <div style="font-size: 12px; color: var(--text-light); margin-top: 6px;">По этому номеру мы свяжемся с вами по заказу</div>
                     </div>
                     <div style="padding: 12px; background: var(--surface); border-radius: 8px; font-size: 14px; color: var(--text-light); text-align: center;">
                         Оплата производится при получении заказа
@@ -1238,12 +1238,7 @@
         const phoneBlock = document.getElementById('contactPhoneBlock');
         const phoneInput = document.getElementById('contactPhone');
         if (phoneBlock && phoneInput) {
-            if (user.username) {
-                phoneBlock.style.display = 'none';
-                phoneInput.value = '';
-            } else {
-                phoneBlock.style.display = 'block';
-            }
+            phoneBlock.style.display = 'block';
         }
         document.getElementById('paymentModal').classList.add('active');
     });
@@ -1271,6 +1266,10 @@
 
         const contactPhoneEl = document.getElementById('contactPhone');
         const contactPhone = (contactPhoneEl && contactPhoneEl.value) ? contactPhoneEl.value.trim() : null;
+        if (!contactPhone) {
+            alert('Укажите номер телефона для обратной связи');
+            return;
+        }
 
         const payload = {
             user_id: user.id || null,
@@ -1303,7 +1302,8 @@
             try { data = JSON.parse(text); } catch (_) {}
 
             if (!resp.ok) {
-                alert(`Ошибка сервера (HTTP ${resp.status}):\n${text.slice(0, 300)}`);
+                const msg = (data && data.message) ? data.message : `Ошибка сервера (HTTP ${resp.status}):\n${text.slice(0, 300)}`;
+                alert(msg);
                 return;
             }
 

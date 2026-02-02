@@ -382,6 +382,11 @@ async def get_payment_config():
 # НОВЫЙ МЕТОД: Принимает заказ напрямую через HTTP
 @app.post("/api/order")
 async def create_order(order: OrderRequest):
+    if not order.phone or not str(order.phone).strip():
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "Укажите номер телефона для обратной связи"},
+        )
     # 1. Сохраняем в БД и получаем порядковый номер заказа
     payload_json = order.model_dump_json()
     payment_method = order.payment_method or "cash"
@@ -401,7 +406,7 @@ async def create_order(order: OrderRequest):
         lines.append(f"👤 Клиент: {user_link} (ID: {order.user_id})")
     if order.username:
         lines.append(f"👤 Username: @{order.username}")
-    if not order.username and order.phone:
+    if order.phone:
         lines.append(f"📞 Телефон для связи: {order.phone}")
     if order.comment:
         lines.append(f"📝 {order.comment}")
