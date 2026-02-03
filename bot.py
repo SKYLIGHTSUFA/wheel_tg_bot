@@ -166,6 +166,7 @@ class OrderRequest(BaseModel):
     total: int
     comment: Optional[str] = ""
     payment_method: Optional[str] = "cash"  # cash, sbp, qr
+    delivery_type: Optional[str] = "pickup"  # delivery — доставка по городу, pickup — самовывоз
 
 
 # --- DATABASE ---
@@ -408,8 +409,14 @@ async def create_order(order: OrderRequest):
         lines.append(f"👤 Username: @{order.username}")
     if order.phone:
         lines.append(f"📞 Телефон для связи: {order.phone}")
+    # Способ получения: доставка по городу или самовывоз
+    delivery_type = (order.delivery_type or "pickup").lower()
+    if delivery_type == "delivery":
+        lines.append("🚚 Доставка: по городу")
+    else:
+        lines.append("🏪 Самовывоз")
     if order.comment:
-        lines.append(f"📝 {order.comment}")
+        lines.append(f"📝 Комментарий: {order.comment}")
 
     lines.append("\n🛒 <b>Товары:</b>")
     for item in order.items:

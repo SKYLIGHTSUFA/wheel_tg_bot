@@ -705,6 +705,23 @@
                         <input type="tel" id="contactPhone" class="form-input" placeholder="+7 (999) 123-45-67" maxlength="18" style="margin-bottom: 0;" required>
                         <div style="font-size: 12px; color: var(--text-light); margin-top: 6px;">По этому номеру мы свяжемся с вами по заказу</div>
                     </div>
+                    <div id="deliveryTypeBlock" style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px;">Получение заказа</label>
+                        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--surface); border: 2px solid var(--border); border-radius: 8px; cursor: pointer; flex: 1; min-width: 120px;">
+                                <input type="radio" name="deliveryType" value="pickup" checked style="accent-color: var(--primary);">
+                                <span>🏪 Самовывоз</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--surface); border: 2px solid var(--border); border-radius: 8px; cursor: pointer; flex: 1; min-width: 120px;">
+                                <input type="radio" name="deliveryType" value="delivery" style="accent-color: var(--primary);">
+                                <span>🚚 Доставка по городу</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div id="orderCommentBlock" style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px;">Комментарий к заказу <span style="font-weight: 400; color: var(--text-light);">(необязательно)</span></label>
+                        <textarea id="orderComment" class="form-input" placeholder="Например: позвоните за час до доставки" rows="3" style="resize: vertical; min-height: 60px;"></textarea>
+                    </div>
                     <div style="padding: 12px; background: var(--surface); border-radius: 8px; font-size: 14px; color: var(--text-light); text-align: center;">
                         Оплата производится при получении заказа
                     </div>
@@ -1271,6 +1288,15 @@
             return;
         }
 
+        const deliveryRadio = document.querySelector('input[name="deliveryType"]:checked');
+        const deliveryType = (deliveryRadio && deliveryRadio.value) ? deliveryRadio.value : 'pickup';
+
+        const commentEl = document.getElementById('orderComment');
+        const userComment = (commentEl && commentEl.value) ? commentEl.value.trim() : '';
+        const commentParts = [`Заказ из Приложения. ${branchComment}`];
+        if (userComment) commentParts.push(userComment);
+        const comment = commentParts.join('\n');
+
         const payload = {
             user_id: user.id || null,
             username: user.username || null,
@@ -1278,8 +1304,9 @@
             phone: contactPhone || null,
             items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
             total,
-            comment: `Заказ из Приложения. ${branchComment}`,
-            payment_method: "cash"
+            comment,
+            payment_method: "cash",
+            delivery_type: deliveryType
         };
 
         const btn = document.getElementById('paymentConfirmBtn');
